@@ -1,0 +1,6 @@
+LIBRARY hiddriver_1
+EXPORTS
+  SetFeature=_SetFeature@8
+  GetFeature=_GetFeature@8
+  Set_VIDPID=_Set_VIDPID@8
+

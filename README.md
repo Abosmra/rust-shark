@@ -35,8 +35,8 @@ service, and it starts instantly.
 
 - **Battery** is reported by the mouse firmware in 10% steps. On some units the firmware
   always reports 100%; no app can fix that.
-- **Lift-off distance** isn't offered: the official app's switch is never sent to the mouse,
-  and the protocol has no field for it.
+- **Lift-off distance** isn't offered: the official app's switch is a placebo that never
+  reaches the mouse. [Here's the proof](docs/lift-off-distance.md).
 - Windows only (it talks to the mouse through the Windows HID API).
 
 ## Download / build
@@ -82,6 +82,7 @@ git push origin v0.2.0
 | `src/keys.rs` | Button functions, key codes and names |
 | `src/ui.rs` | The egui interface |
 | `tools/` | Scripts that generate the logo and the embedded icon data |
+| `tools/capture-shim/` | Logging stand-in for the official app's HID driver, to capture what it sends |
 
 `protocol.rs` has no dependencies on the UI, so it's the place to start if you want to
 support the X6 from another app or language.
