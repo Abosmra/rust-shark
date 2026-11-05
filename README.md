@@ -8,10 +8,12 @@ Rust Shark is a native control app for the **Attack Shark X6** wireless mouse, w
 It does everything the official app does, in one small `.exe`: no installer, no background
 service, and it starts instantly.
 
-<p align="center"><img src="docs/screenshots/performance.png" alt="Performance page: DPI stages and polling rate" width="820"></p>
+<p align="center"><img src="docs/screenshots/home.png" alt="Home: everything at a glance" width="820"></p>
 
-| Buttons | Lighting |
+| Performance | Macros |
 | --- | --- |
+| <img src="docs/screenshots/performance.png" alt="Performance page: DPI stages and polling rate"> | <img src="docs/screenshots/macros.png" alt="Macro editor: actions, delays and repeat modes"> |
+| **Buttons** | **Lighting** |
 | <img src="docs/screenshots/buttons.png" alt="Buttons page: remap all 7 buttons"> | <img src="docs/screenshots/lighting.png" alt="Lighting page: effects and colors"> |
 
 > Not affiliated with or endorsed by Attack Shark. "Attack Shark" is their trademark.
