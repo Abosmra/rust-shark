@@ -1,0 +1,3420 @@
+{
+ "profiles": [
+  {
+   "name": "Aleksandra's Valorant v3",
+   "dpi_units": [
+    520,
+    520,
+    519,
+    1,
+    247,
+    520,
+    0,
+    0
+   ],
+   "dpi_mask": 63,
+   "active_dpi": 3,
+   "dpi_colors": [
+    [
+     255,
+     0,
+     0
+    ],
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     255,
+     255,
+     255
+    ],
+    [
+     20,
+     20,
+     30
+    ],
+    [
+     0,
+     255,
+     255
+    ],
+    [
+     255,
+     0,
+     255
+    ],
+    [
+     255,
+     64,
+     0
+    ],
+    [
+     255,
+     255,
+     255
+    ]
+   ],
+   "ripple": true,
+   "angle_snap": true,
+   "motion_sync": false,
+   "lod_mm": 1,
+   "key_response": 25,
+   "polling": 8,
+   "light_mode": 4,
+   "light_brightness": 1,
+   "light_speed": 8,
+   "light_color": [
+    0,
+    0,
+    0
+   ],
+   "sleep_half_min": 60,
+   "deep_sleep_min": 60,
+   "buttons": [
+    {
+     "Code": [
+      2,
+      0,
+      0
+     ]
+    },
+    {
+     "Macro": 0
+    },
+    {
+     "Shortcut": {
+      "mods": 15,
+      "key": 70
+     }
+    },
+    {
+     "Code": [
+      13,
+      0,
+      0
+     ]
+    },
+    {
+     "Macro": 1
+    },
+    {
+     "Macro": 2
+    },
+    {
+     "Code": [
+      43,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      60,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      10,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      9,
+      0,
+      0
+     ]
+    }
+   ],
+   "macros": [
+    {
+     "name": "Wiśniewska burstfire v12",
+     "events": [
+      {
+       "code": 241,
+       "down": true,
+       "delay_ms": 35
+      },
+      {
+       "code": 241,
+       "down": false,
+       "delay_ms": 10
+      },
+      {
+       "code": 241,
+       "down": true,
+       "delay_ms": 35
+      },
+      {
+       "code": 241,
+       "down": false,
+       "delay_ms": 10
+      },
+      {
+       "code": 241,
+       "down": true,
+       "delay_ms": 35
+      },
+      {
+       "code": 241,
+       "down": false,
+       "delay_ms": 10
+      },
+      {
+       "code": 241,
+       "down": true,
+       "delay_ms": 35
+      },
+      {
+       "code": 241,
+       "down": false,
+       "delay_ms": 10
+      },
+      {
+       "code": 241,
+       "down": true,
+       "delay_ms": 35
+      },
+      {
+       "code": 241,
+       "down": false,
+       "delay_ms": 10
+      },
+      {
+       "code": 241,
+       "down": true,
+       "delay_ms": 35
+      },
+      {
+       "code": 241,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 2,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "",
+     "events": [
+      {
+       "code": 22,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 22,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 255,
+     "kind": 2
+    },
+    {
+     "name": "ماكرو الهجوم السريع",
+     "events": [
+      {
+       "code": 20,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 20,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 1,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Jo",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 5,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 5,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 224,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 224,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 6,
+       "down": true,
+       "delay_ms": 65535
+      },
+      {
+       "code": 6,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 44,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 44,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 82,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 82,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 58,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 58,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 241,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 241,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 244,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 244,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 70,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 70,
+       "down": false,
+       "delay_ms": 1270
+      },
+      {
+       "code": 41,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 41,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 22,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 22,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 23,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 23,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 226,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 226,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 79,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 79,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 245,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 245,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 30,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 30,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 43,
+       "down": true,
+       "delay_ms": 65535
+      },
+      {
+       "code": 43,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 227,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 227,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 69,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 69,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 40,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 40,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 42,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 42,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 80,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 80,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 76,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 76,
+       "down": false,
+       "delay_ms": 1
+      },
+      {
+       "code": 243,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 243,
+       "down": false,
+       "delay_ms": 1
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Copy + paste spam (WIP)",
+     "events": [],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "🦈 afk timer",
+     "events": [
+      {
+       "code": 242,
+       "down": true,
+       "delay_ms": 65535
+      },
+      {
+       "code": 242,
+       "down": false,
+       "delay_ms": 65535
+      }
+     ],
+     "repeat": 1,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 7",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 8",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 9",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 10",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 11",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 12",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 13",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 14",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 15",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 16",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 17",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 18",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 19",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 20",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 21",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 22",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 23",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 24",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 25",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 26",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 27",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 28",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 29",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 30",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 31",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 32",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 33",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 34",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 35",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 36",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 37",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 38",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 39",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    },
+    {
+     "name": "Macro 40",
+     "events": [
+      {
+       "code": 4,
+       "down": true,
+       "delay_ms": 10
+      },
+      {
+       "code": 4,
+       "down": false,
+       "delay_ms": 10
+      }
+     ],
+     "repeat": 0,
+     "loops": 1,
+     "kind": 2
+    }
+   ]
+  },
+  {
+   "name": "Jo",
+   "dpi_units": [
+    16,
+    24,
+    32,
+    64,
+    112,
+    520,
+    0,
+    0
+   ],
+   "dpi_mask": 63,
+   "active_dpi": 1,
+   "dpi_colors": [
+    [
+     255,
+     0,
+     0
+    ],
+    [
+     0,
+     255,
+     0
+    ],
+    [
+     0,
+     0,
+     255
+    ],
+    [
+     255,
+     255,
+     0
+    ],
+    [
+     0,
+     255,
+     255
+    ],
+    [
+     255,
+     0,
+     255
+    ],
+    [
+     255,
+     64,
+     0
+    ],
+    [
+     255,
+     255,
+     255
+    ]
+   ],
+   "ripple": false,
+   "angle_snap": false,
+   "motion_sync": true,
+   "lod_mm": 1,
+   "key_response": 4,
+   "polling": 1,
+   "light_mode": 5,
+   "light_brightness": 8,
+   "light_speed": 6,
+   "light_color": [
+    0,
+    255,
+    0
+   ],
+   "sleep_half_min": 1,
+   "deep_sleep_min": 10,
+   "buttons": [
+    {
+     "Code": [
+      2,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      3,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      4,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      13,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      14,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      15,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      6,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      5,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      60,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      10,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      9,
+      0,
+      0
+     ]
+    }
+   ],
+   "macros": []
+  },
+  {
+   "name": "ملف الألعاب",
+   "dpi_units": [
+    16,
+    24,
+    32,
+    64,
+    112,
+    520,
+    0,
+    0
+   ],
+   "dpi_mask": 63,
+   "active_dpi": 1,
+   "dpi_colors": [
+    [
+     255,
+     0,
+     0
+    ],
+    [
+     0,
+     255,
+     0
+    ],
+    [
+     0,
+     0,
+     255
+    ],
+    [
+     255,
+     255,
+     0
+    ],
+    [
+     0,
+     255,
+     255
+    ],
+    [
+     255,
+     0,
+     255
+    ],
+    [
+     255,
+     64,
+     0
+    ],
+    [
+     255,
+     255,
+     255
+    ]
+   ],
+   "ripple": false,
+   "angle_snap": false,
+   "motion_sync": true,
+   "lod_mm": 1,
+   "key_response": 4,
+   "polling": 1,
+   "light_mode": 5,
+   "light_brightness": 8,
+   "light_speed": 6,
+   "light_color": [
+    0,
+    255,
+    0
+   ],
+   "sleep_half_min": 1,
+   "deep_sleep_min": 10,
+   "buttons": [
+    {
+     "Code": [
+      2,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      3,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      4,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      13,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      14,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      15,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      6,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      5,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      60,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      10,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      9,
+      0,
+      0
+     ]
+    }
+   ],
+   "macros": []
+  },
+  {
+   "name": "🦈 Shark aim",
+   "dpi_units": [
+    16,
+    24,
+    32,
+    64,
+    112,
+    520,
+    0,
+    0
+   ],
+   "dpi_mask": 63,
+   "active_dpi": 1,
+   "dpi_colors": [
+    [
+     255,
+     0,
+     0
+    ],
+    [
+     0,
+     255,
+     0
+    ],
+    [
+     0,
+     0,
+     255
+    ],
+    [
+     255,
+     255,
+     0
+    ],
+    [
+     0,
+     255,
+     255
+    ],
+    [
+     255,
+     0,
+     255
+    ],
+    [
+     255,
+     64,
+     0
+    ],
+    [
+     255,
+     255,
+     255
+    ]
+   ],
+   "ripple": false,
+   "angle_snap": false,
+   "motion_sync": true,
+   "lod_mm": 1,
+   "key_response": 4,
+   "polling": 1,
+   "light_mode": 5,
+   "light_brightness": 8,
+   "light_speed": 6,
+   "light_color": [
+    0,
+    255,
+    0
+   ],
+   "sleep_half_min": 1,
+   "deep_sleep_min": 10,
+   "buttons": [
+    {
+     "Code": [
+      2,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      3,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      4,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      13,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      14,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      15,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      6,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      5,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      60,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      10,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      9,
+      0,
+      0
+     ]
+    }
+   ],
+   "macros": []
+  },
+  {
+   "name": "Valorant (low sens, 400)",
+   "dpi_units": [
+    16,
+    24,
+    32,
+    64,
+    112,
+    520,
+    0,
+    0
+   ],
+   "dpi_mask": 63,
+   "active_dpi": 1,
+   "dpi_colors": [
+    [
+     255,
+     0,
+     0
+    ],
+    [
+     0,
+     255,
+     0
+    ],
+    [
+     0,
+     0,
+     255
+    ],
+    [
+     255,
+     255,
+     0
+    ],
+    [
+     0,
+     255,
+     255
+    ],
+    [
+     255,
+     0,
+     255
+    ],
+    [
+     255,
+     64,
+     0
+    ],
+    [
+     255,
+     255,
+     255
+    ]
+   ],
+   "ripple": false,
+   "angle_snap": false,
+   "motion_sync": true,
+   "lod_mm": 1,
+   "key_response": 4,
+   "polling": 1,
+   "light_mode": 5,
+   "light_brightness": 8,
+   "light_speed": 6,
+   "light_color": [
+    0,
+    255,
+    0
+   ],
+   "sleep_half_min": 1,
+   "deep_sleep_min": 10,
+   "buttons": [
+    {
+     "Code": [
+      2,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      3,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      4,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      13,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      14,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      15,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      6,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      5,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      60,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      10,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      9,
+      0,
+      0
+     ]
+    }
+   ],
+   "macros": []
+  },
+  {
+   "name": "CS2",
+   "dpi_units": [
+    16,
+    24,
+    32,
+    64,
+    112,
+    520,
+    0,
+    0
+   ],
+   "dpi_mask": 63,
+   "active_dpi": 1,
+   "dpi_colors": [
+    [
+     255,
+     0,
+     0
+    ],
+    [
+     0,
+     255,
+     0
+    ],
+    [
+     0,
+     0,
+     255
+    ],
+    [
+     255,
+     255,
+     0
+    ],
+    [
+     0,
+     255,
+     255
+    ],
+    [
+     255,
+     0,
+     255
+    ],
+    [
+     255,
+     64,
+     0
+    ],
+    [
+     255,
+     255,
+     255
+    ]
+   ],
+   "ripple": false,
+   "angle_snap": false,
+   "motion_sync": true,
+   "lod_mm": 1,
+   "key_response": 4,
+   "polling": 1,
+   "light_mode": 5,
+   "light_brightness": 8,
+   "light_speed": 6,
+   "light_color": [
+    0,
+    255,
+    0
+   ],
+   "sleep_half_min": 1,
+   "deep_sleep_min": 10,
+   "buttons": [
+    {
+     "Code": [
+      2,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      3,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      4,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      13,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      14,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      15,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      6,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      5,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      60,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      10,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      9,
+      0,
+      0
+     ]
+    }
+   ],
+   "macros": []
+  },
+  {
+   "name": "Photoshop – brushes",
+   "dpi_units": [
+    16,
+    24,
+    32,
+    64,
+    112,
+    520,
+    0,
+    0
+   ],
+   "dpi_mask": 63,
+   "active_dpi": 1,
+   "dpi_colors": [
+    [
+     255,
+     0,
+     0
+    ],
+    [
+     0,
+     255,
+     0
+    ],
+    [
+     0,
+     0,
+     255
+    ],
+    [
+     255,
+     255,
+     0
+    ],
+    [
+     0,
+     255,
+     255
+    ],
+    [
+     255,
+     0,
+     255
+    ],
+    [
+     255,
+     64,
+     0
+    ],
+    [
+     255,
+     255,
+     255
+    ]
+   ],
+   "ripple": false,
+   "angle_snap": false,
+   "motion_sync": true,
+   "lod_mm": 1,
+   "key_response": 4,
+   "polling": 1,
+   "light_mode": 5,
+   "light_brightness": 8,
+   "light_speed": 6,
+   "light_color": [
+    0,
+    255,
+    0
+   ],
+   "sleep_half_min": 1,
+   "deep_sleep_min": 10,
+   "buttons": [
+    {
+     "Code": [
+      2,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      3,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      4,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      13,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      14,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      15,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      6,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      5,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      60,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      10,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      9,
+      0,
+      0
+     ]
+    }
+   ],
+   "macros": []
+  },
+  {
+   "name": "Work",
+   "dpi_units": [
+    16,
+    24,
+    32,
+    64,
+    112,
+    520,
+    0,
+    0
+   ],
+   "dpi_mask": 63,
+   "active_dpi": 1,
+   "dpi_colors": [
+    [
+     255,
+     0,
+     0
+    ],
+    [
+     0,
+     255,
+     0
+    ],
+    [
+     0,
+     0,
+     255
+    ],
+    [
+     255,
+     255,
+     0
+    ],
+    [
+     0,
+     255,
+     255
+    ],
+    [
+     255,
+     0,
+     255
+    ],
+    [
+     255,
+     64,
+     0
+    ],
+    [
+     255,
+     255,
+     255
+    ]
+   ],
+   "ripple": false,
+   "angle_snap": false,
+   "motion_sync": true,
+   "lod_mm": 1,
+   "key_response": 4,
+   "polling": 1,
+   "light_mode": 5,
+   "light_brightness": 8,
+   "light_speed": 6,
+   "light_color": [
+    0,
+    255,
+    0
+   ],
+   "sleep_half_min": 1,
+   "deep_sleep_min": 10,
+   "buttons": [
+    {
+     "Code": [
+      2,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      3,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      4,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      13,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      14,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      15,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      6,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      5,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      60,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      10,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      9,
+      0,
+      0
+     ]
+    }
+   ],
+   "macros": []
+  },
+  {
+   "name": "Aim trainer",
+   "dpi_units": [
+    16,
+    24,
+    32,
+    64,
+    112,
+    520,
+    0,
+    0
+   ],
+   "dpi_mask": 63,
+   "active_dpi": 1,
+   "dpi_colors": [
+    [
+     255,
+     0,
+     0
+    ],
+    [
+     0,
+     255,
+     0
+    ],
+    [
+     0,
+     0,
+     255
+    ],
+    [
+     255,
+     255,
+     0
+    ],
+    [
+     0,
+     255,
+     255
+    ],
+    [
+     255,
+     0,
+     255
+    ],
+    [
+     255,
+     64,
+     0
+    ],
+    [
+     255,
+     255,
+     255
+    ]
+   ],
+   "ripple": false,
+   "angle_snap": false,
+   "motion_sync": true,
+   "lod_mm": 1,
+   "key_response": 4,
+   "polling": 1,
+   "light_mode": 5,
+   "light_brightness": 8,
+   "light_speed": 6,
+   "light_color": [
+    0,
+    255,
+    0
+   ],
+   "sleep_half_min": 1,
+   "deep_sleep_min": 10,
+   "buttons": [
+    {
+     "Code": [
+      2,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      3,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      4,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      13,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      14,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      15,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      6,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      5,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      60,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      10,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      9,
+      0,
+      0
+     ]
+    }
+   ],
+   "macros": []
+  },
+  {
+   "name": "Minecraft",
+   "dpi_units": [
+    16,
+    24,
+    32,
+    64,
+    112,
+    520,
+    0,
+    0
+   ],
+   "dpi_mask": 63,
+   "active_dpi": 1,
+   "dpi_colors": [
+    [
+     255,
+     0,
+     0
+    ],
+    [
+     0,
+     255,
+     0
+    ],
+    [
+     0,
+     0,
+     255
+    ],
+    [
+     255,
+     255,
+     0
+    ],
+    [
+     0,
+     255,
+     255
+    ],
+    [
+     255,
+     0,
+     255
+    ],
+    [
+     255,
+     64,
+     0
+    ],
+    [
+     255,
+     255,
+     255
+    ]
+   ],
+   "ripple": false,
+   "angle_snap": false,
+   "motion_sync": true,
+   "lod_mm": 1,
+   "key_response": 4,
+   "polling": 1,
+   "light_mode": 5,
+   "light_brightness": 8,
+   "light_speed": 6,
+   "light_color": [
+    0,
+    255,
+    0
+   ],
+   "sleep_half_min": 1,
+   "deep_sleep_min": 10,
+   "buttons": [
+    {
+     "Code": [
+      2,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      3,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      4,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      13,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      14,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      15,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      6,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      5,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      60,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      10,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      9,
+      0,
+      0
+     ]
+    }
+   ],
+   "macros": []
+  },
+  {
+   "name": "Fortnite build mode",
+   "dpi_units": [
+    16,
+    24,
+    32,
+    64,
+    112,
+    520,
+    0,
+    0
+   ],
+   "dpi_mask": 63,
+   "active_dpi": 1,
+   "dpi_colors": [
+    [
+     255,
+     0,
+     0
+    ],
+    [
+     0,
+     255,
+     0
+    ],
+    [
+     0,
+     0,
+     255
+    ],
+    [
+     255,
+     255,
+     0
+    ],
+    [
+     0,
+     255,
+     255
+    ],
+    [
+     255,
+     0,
+     255
+    ],
+    [
+     255,
+     64,
+     0
+    ],
+    [
+     255,
+     255,
+     255
+    ]
+   ],
+   "ripple": false,
+   "angle_snap": false,
+   "motion_sync": true,
+   "lod_mm": 1,
+   "key_response": 4,
+   "polling": 1,
+   "light_mode": 5,
+   "light_brightness": 8,
+   "light_speed": 6,
+   "light_color": [
+    0,
+    255,
+    0
+   ],
+   "sleep_half_min": 1,
+   "deep_sleep_min": 10,
+   "buttons": [
+    {
+     "Code": [
+      2,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      3,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      4,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      13,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      14,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      15,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      6,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      5,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      60,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      10,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      9,
+      0,
+      0
+     ]
+    }
+   ],
+   "macros": []
+  },
+  {
+   "name": "Default",
+   "dpi_units": [
+    16,
+    24,
+    32,
+    64,
+    112,
+    520,
+    0,
+    0
+   ],
+   "dpi_mask": 63,
+   "active_dpi": 1,
+   "dpi_colors": [
+    [
+     255,
+     0,
+     0
+    ],
+    [
+     0,
+     255,
+     0
+    ],
+    [
+     0,
+     0,
+     255
+    ],
+    [
+     255,
+     255,
+     0
+    ],
+    [
+     0,
+     255,
+     255
+    ],
+    [
+     255,
+     0,
+     255
+    ],
+    [
+     255,
+     64,
+     0
+    ],
+    [
+     255,
+     255,
+     255
+    ]
+   ],
+   "ripple": false,
+   "angle_snap": false,
+   "motion_sync": true,
+   "lod_mm": 1,
+   "key_response": 4,
+   "polling": 1,
+   "light_mode": 5,
+   "light_brightness": 8,
+   "light_speed": 6,
+   "light_color": [
+    0,
+    255,
+    0
+   ],
+   "sleep_half_min": 1,
+   "deep_sleep_min": 10,
+   "buttons": [
+    {
+     "Code": [
+      2,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      3,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      4,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      13,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      14,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      15,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      6,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      5,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      60,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      10,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      9,
+      0,
+      0
+     ]
+    }
+   ],
+   "macros": []
+  }
+ ],
+ "active": 0,
+ "library_imported": true,
+ "use_default_delay": true,
+ "default_delay": 65535,
+ "auto_save": false
+}

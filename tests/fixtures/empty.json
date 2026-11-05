@@ -1,0 +1,211 @@
+{
+ "profiles": [
+  {
+   "name": "D",
+   "dpi_units": [
+    16,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "dpi_mask": 1,
+   "active_dpi": 0,
+   "dpi_colors": [
+    [
+     255,
+     0,
+     0
+    ],
+    [
+     0,
+     255,
+     0
+    ],
+    [
+     0,
+     0,
+     255
+    ],
+    [
+     255,
+     255,
+     0
+    ],
+    [
+     0,
+     255,
+     255
+    ],
+    [
+     255,
+     0,
+     255
+    ],
+    [
+     255,
+     64,
+     0
+    ],
+    [
+     255,
+     255,
+     255
+    ]
+   ],
+   "ripple": false,
+   "angle_snap": false,
+   "motion_sync": true,
+   "lod_mm": 1,
+   "key_response": 4,
+   "polling": 1,
+   "light_mode": 5,
+   "light_brightness": 8,
+   "light_speed": 6,
+   "light_color": [
+    0,
+    255,
+    0
+   ],
+   "sleep_half_min": 1,
+   "deep_sleep_min": 10,
+   "buttons": [
+    {
+     "Code": [
+      2,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      3,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      4,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      13,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      14,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      15,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      6,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      5,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      60,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      10,
+      0,
+      0
+     ]
+    },
+    {
+     "Code": [
+      9,
+      0,
+      0
+     ]
+    }
+   ],
+   "macros": []
+  }
+ ],
+ "active": 0,
+ "library_imported": true,
+ "use_default_delay": false,
+ "default_delay": 1,
+ "auto_save": true
+}
