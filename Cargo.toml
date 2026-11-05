@@ -3,6 +3,8 @@ name = "rust-shark"
 version = "0.1.0"
 edition = "2021"
 description = "Fast native control app for the Attack Shark X6 mouse"
+license = "MIT"
+repository = "https://github.com/Abosmra/rust-shark"
 
 [dependencies]
 eframe = { version = "0.31", default-features = false, features = ["glow", "default_fonts"] }
