@@ -2,9 +2,17 @@
 
 # Rust Shark
 
-A fast, native control app for the **Attack Shark X6** wireless mouse, written in Rust.
-The official app is dated and no longer supported, so this replaces it: one small `.exe`,
-no installer, no background service, starts instantly.
+**A cleaner, faster and better-looking alternative to the official Attack Shark X6 software.**
+
+Rust Shark is a native control app for the **Attack Shark X6** wireless mouse, written in Rust.
+It does everything the official app does, in one small `.exe`: no installer, no background
+service, and it starts instantly.
+
+<p align="center"><img src="docs/screenshots/performance.png" alt="Performance page: DPI stages and polling rate" width="820"></p>
+
+| Buttons | Lighting |
+| --- | --- |
+| <img src="docs/screenshots/buttons.png" alt="Buttons page: remap all 7 buttons"> | <img src="docs/screenshots/lighting.png" alt="Lighting page: effects and colors"> |
 
 > Not affiliated with or endorsed by Attack Shark. "Attack Shark" is their trademark.
 
