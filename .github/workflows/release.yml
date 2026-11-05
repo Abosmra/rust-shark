@@ -1,0 +1,51 @@
+# Builds Rust Shark on Windows for every push and pull request.
+# Pushing a tag like v0.2.0 also publishes a GitHub Release with the .exe attached.
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --release
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item target\release\rust-shark.exe "out\RustShark.exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RustShark
+          path: out/RustShark.exe
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" out/RustShark.exe `
+            --repo "${{ github.repository }}" `
+            --title "Rust Shark ${{ github.ref_name }}" `
+            --generate-notes

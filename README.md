@@ -31,7 +31,8 @@ no installer, no background service, starts instantly.
 
 ## Download / build
 
-Requires [Rust](https://rustup.rs/) (stable) on Windows.
+Grab `RustShark.exe` from the [latest release](https://github.com/Abosmra/rust-shark/releases/latest),
+or build it yourself. Building requires [Rust](https://rustup.rs/) (stable) on Windows.
 
 ```bash
 git clone https://github.com/Abosmra/rust-shark
@@ -46,6 +47,19 @@ Settings are stored in `%APPDATA%\RustShark\config.json`.
 
 ```bash
 cargo test
+```
+
+### Releasing
+
+CI builds and tests every push. To publish a release, bump `version` in `Cargo.toml`, then
+push a tag; the workflow attaches the built `.exe`:
+
+```bash
+git tag v0.2.0
+```
+
+```bash
+git push origin v0.2.0
 ```
 
 ## Project layout
