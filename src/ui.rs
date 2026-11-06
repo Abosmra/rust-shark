@@ -119,12 +119,9 @@ fn load_logo_texture(ctx: &egui::Context) -> egui::TextureHandle {
     ctx.load_texture("logo", color, egui::TextureOptions::LINEAR)
 }
 
-/// The mouse render that ships with the official app (loaded from its install
-/// folder, not bundled). None if the official app isn't installed.
+/// The X6 mouse render (250x400, numbered badges baked in), bundled in the exe.
 fn load_mouse_texture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
-    let base = std::env::var_os("ProgramFiles(x86)").map(std::path::PathBuf::from)?;
-    let path = base.join("Attack SharkX6Mouse").join("res").join("skins").join("ms_1").join("mouse.png");
-    let img = image::load_from_memory(&std::fs::read(path).ok()?).ok()?.to_rgba8();
+    let img = image::load_from_memory(include_bytes!("../assets/mouse.png")).ok()?.to_rgba8();
     let (w, h) = img.dimensions();
     let color = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], img.as_raw());
     Some(ctx.load_texture("x6-mouse", color, egui::TextureOptions::LINEAR))
