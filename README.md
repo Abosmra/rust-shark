@@ -29,14 +29,19 @@ service, and it starts instantly.
 - **Power**: sleep and deep-sleep timers, battery level
 - **Sensor**: key response time, ripple control, angle snap, motion sync
 - **Profiles**: multiple profiles, imported from the official app on first run
-- **Auto-save** or an explicit Save / Reset bar
+- **Auto-save** or an explicit Save / Reset bar; every write is confirmed by the mouse and
+  retried if it's missed (e.g. while the mouse sleeps)
+- **DPI indicator**: blink, static or off when you change DPI (a firmware option the
+  official app doesn't expose)
+- **System tray**: close to tray, start with Windows, start minimized
 
 ### Known limits
 
 - **Battery** is reported by the mouse firmware in 10% steps. On some units the firmware
   always reports 100%; no app can fix that.
-- **Lift-off distance** isn't offered: the official app's switch never reaches the mouse, and
-  setting it directly does nothing either. [Here's the proof](docs/lift-off-distance.md).
+- **Lift-off distance** (0.7 / 1 / 2 mm) is written to the firmware's own lift-off field, but a
+  paper-stack test showed no change in tracking cutoff on the X6. The official app's switch
+  never reaches the mouse at all. [Details](docs/lift-off-distance.md).
 - Windows only (it talks to the mouse through the Windows HID API).
 
 ## Download / build
@@ -113,6 +118,8 @@ which describe the same firmware family in much more detail. Useful if you're wr
 - **Reading settings back** works with a one-time permission each read: send
   `a0 <report> <length> 00 <profile> 00 00 00`, read report `a0`, then read the target
   report. The reply has the write layout with a length byte 2 higher.
+  ⚠️ On the X6's 2.4 GHz receiver, several reads in a row (or two programs reading at once)
+  jammed the receiver and froze the mouse for about a minute, so Rust Shark doesn't read back.
 
 | Cmd | Length | Contents |
 | --- | --- | --- |

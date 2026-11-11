@@ -21,6 +21,21 @@ pub struct Config {
     /// Send every change to the mouse right away. When off, changes wait for "Save".
     #[serde(default = "yes")]
     pub auto_save: bool,
+    /// Closing the window keeps Rust Shark running in the system tray.
+    #[serde(default)]
+    pub close_to_tray: bool,
+    /// When started with Windows, stay in the system tray instead of opening the window.
+    #[serde(default)]
+    pub start_minimized: bool,
+}
+
+/// `start_minimized` without loading (and possibly importing/migrating) the whole config.
+pub fn start_minimized_setting() -> bool {
+    std::fs::read_to_string(config_path())
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v["start_minimized"].as_bool())
+        .unwrap_or(false)
 }
 
 fn yes() -> bool {
@@ -126,12 +141,12 @@ impl Config {
         }
         if recovered {
             let profiles = import_official().unwrap_or_else(|| vec![Profile::default()]);
-            return (Config { profiles, active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true }, "recovered");
+            return (Config { profiles, active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false }, "recovered");
         }
         if let Some(profiles) = import_official() {
-            return (Config { profiles, active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true }, "imported");
+            return (Config { profiles, active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false }, "imported");
         }
-        (Config { profiles: vec![Profile::default()], active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true }, "default")
+        (Config { profiles: vec![Profile::default()], active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false }, "default")
     }
 
     pub fn save(&self) {

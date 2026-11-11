@@ -9,7 +9,7 @@ use crate::protocol::{self, StatusMsg};
 use std::ffi::CStr;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
-use windows_sys::Win32::Devices::HumanInterfaceDevice::HidD_SetFeature;
+use windows_sys::Win32::Devices::HumanInterfaceDevice::{HidD_GetFeature, HidD_SetFeature};
 use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
 
@@ -27,12 +27,21 @@ pub struct Status {
     pub resync_needed: bool,
     /// Number of write acknowledgements received from the receiver.
     pub acks: u32,
+    /// The last write got no reply (mouse asleep?); resend once it reports battery again.
+    pub awaiting_wake: bool,
+    /// Jobs in a row that got no reply; resends stop after a few (e.g. a mode that never replies).
+    pub no_reply_streak: u32,
+    /// Result of the last `Step::Verify`: report ids whose contents on the mouse differ
+    /// from the packets the app would send. Taken by the UI.
+    pub mismatch: Option<Vec<u8>>,
 }
 
 pub enum Step {
     Packet(Vec<u8>),
     Macro(Vec<Vec<u8>>),
     Pause(u64),
+    /// Read each report back from the mouse and compare it with this packet.
+    Verify(Vec<Vec<u8>>),
 }
 
 pub struct Device {
@@ -80,11 +89,15 @@ impl Device {
     /// True once after a failed write, when the receiver is connected again.
     pub fn take_resync(&self) -> bool {
         let mut s = self.status.lock().unwrap();
-        let r = s.resync_needed && s.connected && s.pending_jobs == 0;
+        let r = s.resync_needed && s.connected && s.pending_jobs == 0 && !s.awaiting_wake && s.no_reply_streak <= 2;
         if r {
             s.resync_needed = false;
         }
         r
+    }
+
+    pub fn take_mismatch(&self) -> Option<Vec<u8>> {
+        self.status.lock().unwrap().mismatch.take()
     }
 
     pub fn take_dpi_event(&self) -> Option<u8> {
@@ -119,6 +132,26 @@ impl Feature {
     fn set(&self, data: &[u8]) -> bool {
         unsafe { HidD_SetFeature(self.0, data.as_ptr() as _, data.len() as u32) != 0 }
     }
+
+    fn get(&self, report: u8, len: usize) -> Option<Vec<u8>> {
+        let mut buf = vec![0u8; len];
+        buf[0] = report;
+        let ok = unsafe { HidD_GetFeature(self.0, buf.as_mut_ptr() as _, len as u32) != 0 };
+        ok.then_some(buf)
+    }
+
+    /// Read a settings report back. The firmware needs a one-time permission per
+    /// read (report 0xA0: target report, its length, profile); a plain read times out.
+    /// The reply has the write layout, with a length byte 2 higher.
+    fn read(&self, report: u8, len: usize) -> Option<Vec<u8>> {
+        assert!(report != 0x10, "report 0x10 reboots the mouse into its bootloader");
+        if !self.set(&[0xA0, report, len as u8, 0, 1, 0, 0, 0]) {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+        self.get(0xA0, 8)?;
+        self.get(report, len)
+    }
 }
 
 impl Drop for Feature {
@@ -131,7 +164,18 @@ struct Conn {
     status_dev: hidapi::HidDevice,
     feature: Feature,
     wired: bool,
-    ack: bool,
+    /// Last write result seen: (accepted, report id).
+    ack: Option<(bool, u8)>,
+}
+
+/// How a settings write ended.
+#[derive(PartialEq)]
+enum Sent {
+    Confirmed,
+    /// Written, but the mouse never answered (asleep, or out of range).
+    NoReply,
+    /// The USB write itself failed: the receiver is gone.
+    Lost,
 }
 
 fn connect(api: &mut hidapi::HidApi) -> Option<Conn> {
@@ -149,7 +193,7 @@ fn connect(api: &mut hidapi::HidApi) -> Option<Conn> {
                 Err(_) => continue,
             };
             if let Some(feature) = Feature::open(f.path()) {
-                return Some(Conn { status_dev, feature, wired: pid == 0xFA61, ack: false });
+                return Some(Conn { status_dev, feature, wired: pid == 0xFA61, ack: None });
             }
         }
     }
@@ -169,13 +213,15 @@ impl Conn {
                         let mut s = st.lock().unwrap();
                         match msg {
                             StatusMsg::Battery { state, level } => {
+                                // battery reports only flow while the mouse is awake
+                                s.awaiting_wake = false;
                                 if s.battery != Some((state, level)) {
                                     s.battery = Some((state, level));
                                     ctx.request_repaint();
                                 }
                             }
-                            StatusMsg::Ack { ok } => {
-                                self.ack = ok;
+                            StatusMsg::Ack { ok, report } => {
+                                self.ack = Some((ok, report));
                                 if ok {
                                     s.acks += 1;
                                 }
@@ -197,34 +243,51 @@ impl Conn {
         }
     }
 
-    /// Write one packet, then give the receiver time to relay it to the mouse.
-    /// (This receiver doesn't send acks for settings writes — verified by
-    /// sniffing — so we don't retry; an ack, if one arrives, ends the wait early.)
-    fn send_acked(&mut self, data: &[u8], st: &Mutex<Status>, ctx: &egui::Context) -> bool {
-        self.ack = false;
-        if !self.feature.set(data) {
-            return false;
-        }
-        let t = Instant::now();
-        while t.elapsed() < Duration::from_millis(250) && !self.ack {
-            if !self.pump(25, st, ctx) {
-                return false;
+    /// Write one packet and wait for the mouse's 0x50 reply for that report
+    /// (~0.2 s on the X6). Rejected or unanswered writes are retried, 3 tries in all,
+    /// like the official app.
+    fn send_acked(&mut self, data: &[u8], st: &Mutex<Status>, ctx: &egui::Context) -> Sent {
+        for _ in 0..3 {
+            match self.write_wait(data, 1000, st, ctx) {
+                Some(Some(true)) => return Sent::Confirmed,
+                Some(_) => {} // rejected or no reply: try again
+                None => return Sent::Lost,
             }
         }
-        true
+        Sent::NoReply
     }
 
-    fn send_macro(&mut self, chunks: &[Vec<u8>], st: &Mutex<Status>, ctx: &egui::Context) -> bool {
-        for c in chunks {
-            if !self.feature.set(c) {
-                return false;
+    /// One write, then wait up to `ms` for its reply. None = USB failure;
+    /// Some(None) = no reply; Some(Some(ok)) = accepted / rejected.
+    fn write_wait(&mut self, data: &[u8], ms: u64, st: &Mutex<Status>, ctx: &egui::Context) -> Option<Option<bool>> {
+        self.ack = None;
+        if !self.feature.set(data) {
+            return None;
+        }
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_millis(ms) {
+            if !self.pump(25, st, ctx) {
+                return None;
             }
-            // The official app paces macro chunks a full second apart.
-            if !self.pump(1000, st, ctx) {
-                return false;
+            if let Some((ok, report)) = self.ack {
+                if report == data[0] {
+                    return Some(Some(ok));
+                }
             }
         }
-        true
+        Some(None)
+    }
+
+    fn send_macro(&mut self, chunks: &[Vec<u8>], st: &Mutex<Status>, ctx: &egui::Context) -> Sent {
+        for c in chunks {
+            // Up to a second per chunk, like the official app; a reply ends the wait early.
+            // shortcut: per-chunk replies aren't confirmed on the X6 yet, so silence isn't
+            // treated as a failure here; make it one if chunks turn out to be acked.
+            if self.write_wait(c, 1000, st, ctx).is_none() {
+                return Sent::Lost;
+            }
+        }
+        Sent::Confirmed
     }
 }
 
@@ -251,30 +314,57 @@ fn worker(rx: mpsc::Receiver<Vec<Step>>, st: Arc<Mutex<Status>>, ctx: egui::Cont
 
         match rx.try_recv() {
             Ok(steps) => {
-                let mut failed = false;
+                let mut result = Sent::Confirmed;
                 if let Some(c) = conn.as_mut() {
                     for step in steps {
-                        let ok = match &step {
+                        let r = match &step {
                             Step::Packet(p) => c.send_acked(p, &st, &ctx),
                             Step::Macro(chunks) => c.send_macro(chunks, &st, &ctx),
-                            Step::Pause(ms) => c.pump(*ms, &st, &ctx),
+                            Step::Pause(ms) => if c.pump(*ms, &st, &ctx) { Sent::Confirmed } else { Sent::Lost },
+                            Step::Verify(expected) => {
+                                let mut differs = Vec::new();
+                                let mut complete = true;
+                                for p in expected {
+                                    match c.feature.read(p[0], p.len()) {
+                                        // skip byte 1 (length) and trailing padding
+                                        Some(r) => {
+                                            if r[2..] != p[2..] {
+                                                differs.push(p[0]);
+                                            }
+                                        }
+                                        None => complete = false,
+                                    }
+                                }
+                                // a read that failed (mouse asleep) proves nothing: report only complete checks
+                                if complete {
+                                    st.lock().unwrap().mismatch = Some(differs);
+                                }
+                                Sent::Confirmed
+                            }
                         };
-                        if !ok {
-                            failed = true;
+                        if r == Sent::Lost {
+                            result = Sent::Lost;
                             break;
+                        }
+                        if r == Sent::NoReply {
+                            result = Sent::NoReply; // keep going: the rest may still land
                         }
                     }
                 } else {
-                    failed = true;
+                    result = Sent::Lost;
                 }
-                if failed {
+                let lost = result == Sent::Lost;
+                if lost {
                     conn = None;
                 }
                 let mut s = st.lock().unwrap();
                 s.pending_jobs = s.pending_jobs.saturating_sub(1);
-                s.last_write_failed = failed;
-                s.resync_needed |= failed;
-                if failed {
+                s.last_write_failed = result != Sent::Confirmed;
+                s.resync_needed |= result != Sent::Confirmed;
+                // no reply: wait for the mouse to wake (battery report) before resending
+                s.awaiting_wake = result == Sent::NoReply;
+                s.no_reply_streak = if result == Sent::NoReply { s.no_reply_streak + 1 } else { 0 };
+                if lost {
                     s.connected = false;
                 }
                 ctx.request_repaint();

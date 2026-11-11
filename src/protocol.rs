@@ -51,6 +51,9 @@ pub struct Macro {
 fn two() -> u8 {
     2
 }
+fn one() -> u8 {
+    1
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Profile {
@@ -62,7 +65,14 @@ pub struct Profile {
     /// Active DPI level, 0-based.
     pub active_dpi: u8,
     pub dpi_colors: [[u8; 3]; 8],
+    /// How the LED shows a DPI change: 1 blink (official app's fixed value), 2 static, 3 off.
+    #[serde(default = "one")]
+    pub dpi_indicator: u8,
     pub ripple: bool,
+    /// Lift-off distance, firmware code: 0 = 1 mm (default), 1 = 2 mm, 2 = 0.7 mm.
+    /// High nibble of byte 3 of the DPI packet; the official app never sets it.
+    #[serde(default)]
+    pub lod: u8,
     pub angle_snap: bool,
     pub motion_sync: bool,
     /// Key response raw value 2..=25 (x2 = milliseconds).
@@ -94,6 +104,8 @@ impl Default for Profile {
             dpi_mask: 0x3F,
             active_dpi: 1,
             dpi_colors: DEFAULT_DPI_COLORS,
+            dpi_indicator: 1,
+            lod: 0,
             ripple: false,
             angle_snap: false,
             motion_sync: true,
@@ -178,7 +190,7 @@ pub fn pkt_begin() -> Vec<u8> {
 pub fn pkt_dpi(p: &Profile) -> Vec<u8> {
     let mut b = vec![0u8; 56];
     b[..3].copy_from_slice(&[0x04, 0x38, 0x01]);
-    b[3] = p.angle_snap as u8;
+    b[3] = (p.lod.min(2) << 4) | p.angle_snap as u8;
     b[4] = p.ripple as u8;
     b[5] = p.dpi_mask;
     b[6] = p.angle_snap as u8;
@@ -194,7 +206,7 @@ pub fn pkt_dpi(p: &Profile) -> Vec<u8> {
     for (i, c) in p.dpi_colors.iter().enumerate() {
         b[25 + i * 3..28 + i * 3].copy_from_slice(c);
     }
-    b[49] = 0x01;
+    b[49] = p.dpi_indicator.clamp(1, 3);
     put_sum(&mut b, 3, 50);
     b
 }
@@ -340,7 +352,8 @@ pub fn all_macro_uploads(p: &Profile) -> Vec<(u8, Vec<Vec<u8>>)> {
 pub enum StatusMsg {
     /// state: 1 on battery, 2 full, 3 charging; level 1..=10
     Battery { state: u8, level: u8 },
-    Ack { ok: bool },
+    /// Write result for `report` (0x50 event): accepted or rejected (e.g. bad checksum).
+    Ack { ok: bool, report: u8 },
     /// The mouse switched DPI level itself (0-based).
     DpiLevel(u8),
     Other(u16),
@@ -353,7 +366,7 @@ pub fn parse_status(r: &[u8]) -> Option<StatusMsg> {
     let id = u16::from_le_bytes([r[1], r[2]]);
     Some(match id {
         0x4010 => StatusMsg::Battery { state: r[3], level: r[4] },
-        0x5010 => StatusMsg::Ack { ok: r[3] == 0 },
+        0x5010 => StatusMsg::Ack { ok: r[3] == 0, report: r[4] },
         0x1010 if (1..=8).contains(&r[3]) => StatusMsg::DpiLevel(r[3] - 1),
         other => StatusMsg::Other(other),
     })
@@ -481,7 +494,9 @@ mod tests {
     #[test]
     fn status_parsing() {
         assert_eq!(parse_status(&hex("03 10 40 01 0a")), Some(StatusMsg::Battery { state: 1, level: 10 }));
-        assert_eq!(parse_status(&hex("03 10 50 00 00")), Some(StatusMsg::Ack { ok: true }));
+        // captured on the X6: accepted polling write, and a rejected one (bad checksum)
+        assert_eq!(parse_status(&hex("03 10 50 00 06")), Some(StatusMsg::Ack { ok: true, report: 0x06 }));
+        assert_eq!(parse_status(&hex("03 10 50 01 06")), Some(StatusMsg::Ack { ok: false, report: 0x06 }));
         assert_eq!(parse_status(&hex("03 10 10 03 00")), Some(StatusMsg::DpiLevel(2)));
     }
 }

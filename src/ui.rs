@@ -53,6 +53,10 @@ enum Dirty {
     Macros,
 }
 
+/// Read the mouse back on connect and compare. Off: on the X6 receiver these reads
+/// froze the mouse for about a minute right after launch (2026-11-12).
+const VERIFY_ON_CONNECT: bool = false;
+
 #[derive(Clone, Copy)]
 enum Confirm {
     Wipe,
@@ -81,10 +85,19 @@ pub struct App {
     /// Waiting for one key to add (modifiers held when it started).
     capture_key: Option<egui::Modifiers>,
     confirm: Option<Confirm>,
+    told_no_reply: bool,
+    /// The mouse was compared with the app since it connected.
+    verified: bool,
+    /// Reports (04/05/06/08) where the mouse differs from the app.
+    mouse_differs: Option<Vec<u8>>,
     editing_event: bool,
     macro_search: String,
     mouse_tex: Option<egui::TextureHandle>,
     logo_tex: egui::TextureHandle,
+    /// System tray icon (kept alive for the app's lifetime).
+    tray: Option<tray_icon::TrayIcon>,
+    /// "Start with Windows" (the Run registry value is the source of truth).
+    autostart: bool,
     /// Profiles as last sent to the mouse (what "Reset" goes back to).
     applied: (Vec<Profile>, usize),
     /// Page that's currently scrolled; a different page starts at the top.
@@ -149,10 +162,18 @@ impl App {
             sel_delay: false,
             capture_key: None,
             confirm: None,
+            told_no_reply: false,
+            verified: false,
+            mouse_differs: None,
             editing_event: false,
             macro_search: String::new(),
             mouse_tex: load_mouse_texture(&cc.egui_ctx),
             logo_tex: load_logo_texture(&cc.egui_ctx),
+            tray: {
+                crate::tray::set_window(cc);
+                crate::tray::create(cc.egui_ctx.clone())
+            },
+            autostart: crate::tray::autostart_enabled() && crate::tray::set_autostart(true), // refresh the path in case the exe moved
             applied: (Vec::new(), 0),
             shown_page: None,
             icons: load_input_icons(&cc.egui_ctx),
@@ -546,6 +567,11 @@ fn shortcut_label(mods: u8, key: u8) -> String {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // closing the window keeps Rust Shark in the system tray (tray menu > Quit exits)
+        if self.cfg.close_to_tray && self.tray.is_some() && ctx.input(|i| i.viewport().close_requested()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            crate::tray::hide();
+        }
         if let Some(l) = self.dev.take_dpi_event() {
             if self.cfg.profile().active_dpi != l {
                 self.p().active_dpi = l;
@@ -568,9 +594,31 @@ impl eframe::App for App {
         }
         if self.dev.take_resync() {
             self.mark(Dirty::Full);
-            self.toast("Mouse reconnected: re-sending your settings");
+            self.toast("The mouse missed a change: re-sending your settings");
         }
         let status = self.dev.snapshot();
+        // tell once when retries have stopped
+        let gave_up = status.no_reply_streak > 2;
+        if gave_up && !self.told_no_reply {
+            self.toast("The mouse isn't confirming changes. They were sent, but may not have applied.");
+        }
+        self.told_no_reply = gave_up;
+        // once per connection, when the mouse is awake: does it hold what the app would send?
+        if !status.connected {
+            self.verified = false;
+        } else if VERIFY_ON_CONNECT && !self.verified && status.battery.is_some() && status.pending_jobs == 0 && self.dirty.is_empty() {
+            let p = self.cfg.profile();
+            self.dev.send(vec![Step::Verify(vec![
+                protocol::pkt_dpi(p),
+                protocol::pkt_light_power(p),
+                protocol::pkt_polling(p),
+                protocol::pkt_buttons(p),
+            ])]);
+            self.verified = true;
+        }
+        if let Some(m) = self.dev.take_mismatch() {
+            self.mouse_differs = (!m.is_empty()).then_some(m);
+        }
         if status.pending_jobs > 0 {
             ctx.request_repaint_after(Duration::from_millis(200));
         }
@@ -677,6 +725,69 @@ impl eframe::App for App {
             } else if reset && pending {
                 self.discard_pending();
                 self.toast("Changes discarded");
+            }
+        }
+
+        // The mouse holds different settings than the app (found by the startup check).
+        if let Some(ids) = self.mouse_differs.clone() {
+            let names: Vec<&str> = ids
+                .iter()
+                .map(|r| match r {
+                    0x04 => "DPI & sensor",
+                    0x05 => "lighting & power",
+                    0x06 => "polling rate",
+                    _ => "buttons",
+                })
+                .collect();
+            let (mut send, mut ignore) = (false, false);
+            let lift = if pending { -96.0 } else { -20.0 };
+            egui::Area::new("differs".into())
+                .anchor(Align2::CENTER_BOTTOM, vec2(105.0, lift))
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    egui::Frame::new()
+                        .fill(PANEL)
+                        .stroke(Stroke::new(1.0_f32, WARN.gamma_multiply(0.6)))
+                        .corner_radius(CornerRadius::same(14))
+                        .inner_margin(Margin { left: 22, right: 12, top: 10, bottom: 10 })
+                        .show(ui, |ui| {
+                            ui.set_width(660.0);
+                            ui.horizontal(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.spacing_mut().item_spacing.y = 0.0;
+                                    ui.label(RichText::new("Your mouse has different settings").size(15.0).strong());
+                                    ui.label(RichText::new(format!("Not what Rust Shark shows: {}", names.join(", "))).size(12.0).color(MUTED));
+                                });
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    let b = egui::Button::new(RichText::new("Send Rust Shark's").color(Color32::WHITE).strong())
+                                        .fill(ACCENT)
+                                        .corner_radius(CornerRadius::same(10))
+                                        .min_size(vec2(150.0, 38.0));
+                                    send = ui.add(b).on_hover_text("Overwrite these settings on the mouse with the ones shown here").clicked();
+                                    let k = egui::Button::new(RichText::new("Ignore").color(TEXT))
+                                        .fill(PANEL2)
+                                        .corner_radius(CornerRadius::same(10))
+                                        .min_size(vec2(96.0, 38.0));
+                                    ignore = ui.add(k).on_hover_text("Leave the mouse as it is").clicked();
+                                });
+                            });
+                        });
+                });
+            if send {
+                for r in &ids {
+                    self.mark(match r {
+                        0x04 => Dirty::Dpi,
+                        0x05 => Dirty::LightPower,
+                        0x06 => Dirty::Polling,
+                        _ => Dirty::Buttons,
+                    });
+                }
+                self.send_pending();
+                self.mouse_differs = None;
+                self.verified = false; // check again once it's sent
+                self.toast("Sent to the mouse");
+            } else if ignore {
+                self.mouse_differs = None;
             }
         }
 
@@ -808,6 +919,35 @@ impl App {
                     }
                 },
             );
+        });
+        ui.add_space(12.0);
+        card(ui, "Windows", |ui| {
+            setting_row(ui, "Start with Windows", "Open Rust Shark when you sign in", |ui| {
+                let mut on = self.autostart;
+                if toggle(ui, &mut on).changed() {
+                    if crate::tray::set_autostart(on) {
+                        self.autostart = on;
+                    } else {
+                        self.toast("Windows didn't allow changing the startup setting");
+                    }
+                }
+            });
+            ui.separator();
+            setting_row(ui, "Start minimized", "When it starts with Windows, stay in the system tray instead of opening the window", |ui| {
+                let mut on = self.cfg.start_minimized;
+                if toggle(ui, &mut on).changed() {
+                    self.cfg.start_minimized = on;
+                    self.cfg.save();
+                }
+            });
+            ui.separator();
+            setting_row(ui, "Close to system tray", "Closing the window keeps Rust Shark running by the clock. Quit from the tray icon's menu.", |ui| {
+                let mut on = self.cfg.close_to_tray;
+                if toggle(ui, &mut on).changed() {
+                    self.cfg.close_to_tray = on;
+                    self.cfg.save();
+                }
+            });
         });
         ui.add_space(12.0);
         card(ui, "About", |ui| {
@@ -1222,6 +1362,23 @@ impl App {
                 if ui.add(egui::Slider::new(&mut ms, 4..=50).step_by(2.0).suffix(" ms")).changed() {
                     self.p().key_response = (ms / 2) as u8;
                     self.mark(Dirty::LightPower);
+                }
+            });
+            ui.separator();
+            setting_row(ui, "Lift-off distance", "How high you can lift the mouse before it stops tracking", |ui| {
+                // slider stops in height order; firmware codes are 2 = 0.7 mm, 0 = 1 mm, 1 = 2 mm
+                const STOPS: [(u8, &str); 3] = [(2, "0.7 mm"), (0, "1 mm"), (1, "2 mm")];
+                let cur = self.cfg.profile().lod;
+                let mut i = STOPS.iter().position(|s| s.0 == cur).unwrap_or(1);
+                let r = ui.add(
+                    egui::Slider::new(&mut i, 0..=2)
+                        .show_value(false)
+                        .custom_formatter(|v, _| STOPS[v as usize].1.to_string()),
+                );
+                ui.label(STOPS[i].1);
+                if r.changed() {
+                    self.p().lod = STOPS[i].0;
+                    self.mark(Dirty::Dpi);
                 }
             });
         });
@@ -1747,6 +1904,19 @@ impl App {
                         ui.label(RichText::new(if m.loops == 1 { "time per press" } else { "times per press" }).color(MUTED));
                     });
                 }
+                if (m.repeat != 0 || m.loops > 1) && !m.events.is_empty() {
+                    // what the mouse really plays: 10 ms steps (min 10), plus 10 ms per repeat
+                    // (measured on the X6: a 40/30 ms click macro loops every 80 ms)
+                    let one: u32 = m.events.iter().map(|e| (((e.delay_ms as u32 + 5) / 10).max(1)) * 10).sum::<u32>() + 10;
+                    ui.label(
+                        RichText::new(format!(
+                            "One loop takes about {one} ms ({:.1} per second), including 10 ms the mouse adds before each repeat.",
+                            1000.0 / one as f32
+                        ))
+                        .size(12.0)
+                        .color(MUTED),
+                    );
+                }
                 ui.add_space(12.0);
 
                 // ---- sequence timeline
@@ -2183,6 +2353,16 @@ impl App {
                 *self.p() = p;
                 self.mark(Dirty::LightPower);
             }
+        });
+        ui.add_space(10.0);
+        card(ui, "DPI change", |ui| {
+            setting_row(ui, "Indicator", "How the LED shows the new DPI level's color when you switch DPI", |ui| {
+                let mut v = self.cfg.profile().dpi_indicator.clamp(1, 3);
+                if segmented(ui, &mut v, &[(1u8, "Blink"), (2u8, "Static"), (3u8, "Off")]) {
+                    self.p().dpi_indicator = v;
+                    self.mark(Dirty::Dpi);
+                }
+            });
         });
     }
 

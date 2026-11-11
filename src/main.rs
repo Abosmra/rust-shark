@@ -5,6 +5,7 @@ mod icons_data;
 mod keys;
 mod protocol;
 mod store;
+mod tray;
 mod ui;
 
 /// `rust-shark --selftest <out.txt>`: re-sends the active profile's polling
@@ -89,12 +90,15 @@ fn main() -> eframe::Result<()> {
         resend();
         return Ok(());
     }
+    // started by Windows (Run key) with "start minimized" on: open straight into the tray
+    let hidden = args.iter().any(|a| a == "--autostart") && store::start_minimized_setting();
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Rust Shark")
             .with_icon(window_icon())
             .with_inner_size(start_size())
-            .with_min_inner_size([960.0, 620.0]),
+            .with_min_inner_size([960.0, 620.0])
+            .with_visible(!hidden),
         ..Default::default()
     };
     eframe::run_native("Rust Shark", opts, Box::new(|cc| Ok(Box::new(ui::App::new(cc)))))
