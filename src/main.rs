@@ -31,6 +31,34 @@ fn selftest(out: &str) {
     let _ = std::fs::write(out, report);
 }
 
+/// `rust-shark --resend`: writes the saved active profile (DPI, lighting, power,
+/// polling, buttons, macros) to the mouse again. Repairs a mouse that was reset.
+fn resend() {
+    let (cfg, _) = store::Config::load();
+    let p = cfg.profile();
+    let dev = device::Device::start(egui::Context::default());
+    let t = std::time::Instant::now();
+    while t.elapsed().as_secs() < 6 && !dev.snapshot().connected {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let mut steps = vec![
+        device::Step::Packet(protocol::pkt_begin()),
+        device::Step::Pause(500),
+        device::Step::Packet(protocol::pkt_dpi(p)),
+        device::Step::Packet(protocol::pkt_light_power(p)),
+        device::Step::Packet(protocol::pkt_polling(p)),
+        device::Step::Packet(protocol::pkt_buttons(p)),
+    ];
+    for (_, chunks) in protocol::all_macro_uploads(p) {
+        steps.push(device::Step::Macro(chunks));
+    }
+    dev.send(steps);
+    let t = std::time::Instant::now();
+    while t.elapsed().as_secs() < 20 && dev.snapshot().pending_jobs > 0 {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
 /// The rusted shark-fin logo, embedded in the binary.
 pub const LOGO_PNG: &[u8] = include_bytes!("../assets/logo_256.png");
 
@@ -55,6 +83,10 @@ fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--selftest") {
         selftest(args.get(2).map(String::as_str).unwrap_or("selftest.txt"));
+        return Ok(());
+    }
+    if args.get(1).map(String::as_str) == Some("--resend") {
+        resend();
         return Ok(());
     }
     let opts = eframe::NativeOptions {
