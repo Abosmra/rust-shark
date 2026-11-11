@@ -271,9 +271,11 @@ pub const MAX_LONG_WAITS: usize = 10;
 /// above 51 s are split across several fillers.
 pub fn encode_events(events: &[MacroEvent]) -> Vec<(u8, u8)> {
     let enc = |ms: u16, down: bool| {
-        // Same rounding as the official app: (int)(ms / 10.0f + 0.5), min 1 ms
-        let units = ((ms.max(1) as f32 / 10.0) as f64 + 0.5) as u8;
-        units | if down { 0x01 } else { 0x81 }
+        // Bits 0-6 = delay in 10 ms units (min 1), bit 7 = release. The official app
+        // ORs 0x01 into every byte, so even unit counts play 10 ms long (its "40 ms"
+        // was sent as 0x05 and measured 50 ms on the X6).
+        let units = ((ms as f32 / 10.0 + 0.5) as u8).clamp(1, 0x7F);
+        units | if down { 0x00 } else { 0x80 }
     };
     let mut out = Vec::new();
     let mut fillers = 0;
@@ -437,9 +439,10 @@ mod tests {
             kind: 2,
         };
         let c = macro_chunks(5, &m);
-        assert_eq!(c[0], padded("09 40 05 00 02 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 02 05 f1 81 f1", 64));
+        // the official app sent "05 f1" here (its +10 ms bug); 40 ms is 4 units
+        assert_eq!(c[0], padded("09 40 05 00 02 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 02 04 f1 81 f1", 64));
         assert_eq!(c[1], padded("09 40 05 01", 64));
-        assert_eq!(c[2], padded("09 0c 05 02 00 00 00 00 00 00 02 6d", 64));
+        assert_eq!(c[2], padded("09 0c 05 02 00 00 00 00 00 00 02 6c", 64));
     }
 
     #[test]
@@ -465,11 +468,14 @@ mod tests {
     fn long_delays_use_filler_entries() {
         let ev = |code, down, delay_ms| MacroEvent { code, down, delay_ms };
         // 1900 ms -> event carries 100 ms, then "wait 9 x 200 ms"
-        assert_eq!(encode_events(&[ev(0x52, false, 1900)]), vec![(0x8B, 0x52), (9, 0x03)]);
-        // 65535 ms (afktycoon) -> 135 ms + 255 x 200 + 72 x 200 = 65535 ms
-        assert_eq!(encode_events(&[ev(0xF1, true, 65535)]), vec![(0x0F, 0xF1), (255, 0x03), (72, 0x03)]);
-        // short delays unchanged
-        assert_eq!(encode_events(&[ev(0xF1, true, 40)]), vec![(0x05, 0xF1)]);
+        assert_eq!(encode_events(&[ev(0x52, false, 1900)]), vec![(0x8A, 0x52), (9, 0x03)]);
+        // 65535 ms (afktycoon) -> 135 ms (14 units) + 255 x 200 + 72 x 200
+        assert_eq!(encode_events(&[ev(0xF1, true, 65535)]), vec![(0x0E, 0xF1), (255, 0x03), (72, 0x03)]);
+        // short delays: plain 10 ms units, release adds 0x80, minimum 1 unit
+        assert_eq!(encode_events(&[ev(0xF1, true, 40)]), vec![(0x04, 0xF1)]);
+        assert_eq!(encode_events(&[ev(0xF1, false, 30)]), vec![(0x83, 0xF1)]);
+        assert_eq!(encode_events(&[ev(0xF1, true, 35)]), vec![(0x04, 0xF1)]);
+        assert_eq!(encode_events(&[ev(0xF1, true, 0)]), vec![(0x01, 0xF1)]);
     }
 
     #[test]
