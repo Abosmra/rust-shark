@@ -1807,13 +1807,29 @@ impl App {
                                 let tx = pill.left() + 36.0;
                                 let mut after = tx + ui.painter().layout_no_wrap(format!("{} ms", e.delay_ms), FontId::proportional(13.5), TEXT).size().x;
                                 if editing {
-                                    // editable only after Edit / double-click
-                                    let r = Rect::from_min_size(Pos2::new(tx - 6.0, pill.top() + 4.0), vec2(104.0, pill.height() - 8.0));
-                                    ui.allocate_new_ui(egui::UiBuilder::new().max_rect(r).layout(Layout::left_to_right(Align::Center)), |ui| {
-                                        ui.spacing_mut().interact_size.y = r.height();
-                                        ui.add_sized(r.size(), egui::DragValue::new(&mut e.delay_ms).range(0..=65535).speed(5).suffix(" ms"));
-                                    });
-                                    after = r.right() + 4.0;
+                                    // editable only after Edit / double-click: same spot and font as the
+                                    // plain text, inside a small box that fits the row (drawn behind it)
+                                    let bg = ui.painter().add(egui::Shape::Noop);
+                                    let r = Rect::from_min_max(Pos2::new(tx, pill.top() + 3.0), Pos2::new(tx + 110.0, pill.bottom() - 3.0));
+                                    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r).layout(Layout::left_to_right(Align::Center)));
+                                    let s = child.style_mut();
+                                    s.spacing.button_padding = vec2(0.0, 0.0);
+                                    // fixed width: the box doesn't shrink when typing drops the " ms" suffix
+                                    let w = ui.painter().layout_no_wrap("65535 ms".into(), FontId::proportional(13.5), TEXT).size().x;
+                                    s.spacing.interact_size = vec2(w, r.height());
+                                    s.override_font_id = Some(FontId::proportional(13.5));
+                                    for w in [&mut s.visuals.widgets.inactive, &mut s.visuals.widgets.hovered, &mut s.visuals.widgets.active] {
+                                        w.bg_fill = Color32::TRANSPARENT;
+                                        w.weak_bg_fill = Color32::TRANSPARENT;
+                                        w.bg_stroke = Stroke::NONE;
+                                        w.expansion = 0.0;
+                                    }
+                                    let dv = child.add(egui::DragValue::new(&mut e.delay_ms).range(0..=65535).speed(5).suffix(" ms"));
+                                    let boxr = Rect::from_min_max(Pos2::new(dv.rect.left() - 8.0, r.top()), Pos2::new(dv.rect.right() + 8.0, r.bottom()));
+                                    let hot = dv.hovered() || dv.has_focus() || dv.dragged();
+                                    ui.painter().set(bg, egui::epaint::RectShape::new(boxr, CornerRadius::same(6), BG,
+                                        Stroke::new(1.0_f32, if hot { ACCENT } else { BORDER }), egui::StrokeKind::Inside));
+                                    after = boxr.right();
                                 } else {
                                     ui.painter().text(Pos2::new(tx, pill.center().y), Align2::LEFT_CENTER, format!("{} ms", e.delay_ms), FontId::proportional(13.5), TEXT);
                                 }
