@@ -35,8 +35,8 @@ service, and it starts instantly.
 
 - **Battery** is reported by the mouse firmware in 10% steps. On some units the firmware
   always reports 100%; no app can fix that.
-- **Lift-off distance** isn't offered: the official app's switch is a placebo that never
-  reaches the mouse. [Here's the proof](docs/lift-off-distance.md).
+- **Lift-off distance** isn't offered: the official app's switch never reaches the mouse, and
+  setting it directly does nothing either. [Here's the proof](docs/lift-off-distance.md).
 - Windows only (it talks to the mouse through the Windows HID API).
 
 ## Download / build
@@ -89,23 +89,45 @@ support the X6 from another app or language.
 
 ## Protocol notes
 
-Reverse-engineered from the official app and USB captures. Useful if you're writing your own tool.
+Reverse-engineered from the official app and USB captures, and cross-checked against the
+[Attack Shark X11 driver docs](https://github.com/HarukaYamamoto0/attack-shark-x11-driver/tree/main/docs),
+which describe the same firmware family in much more detail. Useful if you're writing your own tool.
+
+> [!CAUTION]
+> Never send or read report `0x10`. On this firmware family it puts the mouse into its
+> bootloader (firmware-update mode). Rust Shark never uses it.
 
 - **USB IDs**: VID `0x1D57`, PID `0xFA60` (2.4 GHz receiver), `0xFA61` (wired).
 - **Writes** are HID feature reports on the interface with usage page `0x0B`, sent at their
   exact length. Packet: `[cmd][len][01][payload…][sum16 hi][sum16 lo]`, where the checksum
-  is the sum of bytes from index 3.
-- **Status** comes as input reports on usage page `0x0A`: `03 lo hi p0 p1`
-  (`0x4010` battery state + level 0–10, `0x5010` ack, `0x1010` DPI stage changed on the mouse).
+  is the sum of bytes from index 3. The `01` is the profile number.
+- **Status** comes as 5-byte input reports on usage page `0x0A`: `03 <device> <event> <p1> <p2>`.
+  The X6 reports device ID `0x10`.
+
+  | Event | Meaning |
+  | --- | --- |
+  | `40` | Battery: `p1` = state (1 on battery, 2 full, 3 charging), `p2` = level 0–10. Sent every ~2 s. |
+  | `50` | Write result: `p1` = `00` accepted / `01` rejected, `p2` = the report it refers to. Arrives ~0.2 s after a write. |
+  | `10` | DPI stage changed on the mouse: `p1` = new stage (1-based) |
+
+- **Reading settings back** works with a one-time permission each read: send
+  `a0 <report> <length> 00 <profile> 00 00 00`, read report `a0`, then read the target
+  report. The reply has the write layout with a length byte 2 higher.
 
 | Cmd | Length | Contents |
 | --- | --- | --- |
-| `04` | 56 | DPI: per-stage value (`DPI / 50 − 1`), enabled mask, active stage, 8 RGB colors, angle snap, ripple, motion sync |
+| `04` | 56 | DPI: per-stage value (`DPI / 50 − 1`), enabled mask, active stage, 8 RGB colors, angle snap, ripple, motion sync. Byte 3's high nibble is a lift-off field the X6 stores but [doesn't apply](docs/lift-off-distance.md). |
 | `05` | 15 | Lighting mode, speed, brightness, color, sleep timers, key response |
-| `06` | — | Polling: `1` = 1000 Hz, `2` = 500, `4` = 250, `8` = 125, plus its inverse |
+| `06` | 9 | Polling: `1` = 1000 Hz, `2` = 500, `4` = 250, `8` = 125, plus its inverse |
 | `08` | 59 | Button map: 18 slots × 3 bytes (function, shortcut `[0x11, mods, key]`, macro `[0x12, 0, slot+1]`) |
-| `09` | — | Macro upload: 131-byte buffer in 3 chunks; event = delay byte (`ms/10`, press `0x01` / release `0x81`) + key code; max 50 events |
-| `0c` | — | Begin a full write |
+| `09` | 64 ×3 | Macro upload: 131-byte buffer in 3 chunks; event = delay byte (`ms/10`, press `0x01` / release `0x81`) + key code; max 50 events |
+| `0b` | 8 | Firmware version (read only) |
+| `0c` | 10 | Active profile and number of profiles (`01 fe 01 fe` = profile 1 of 1). Rust Shark sends it before a full write. |
+
+> [!WARNING]
+> The mouse can hold up to 5 profiles, but on the X6, switching to 2 profiles and back to 1
+> reset profile 1 to factory defaults (macros survived, button assignments didn't).
+> Test onboard profiles carefully before relying on them.
 
 See `src/protocol.rs` and its tests for the exact byte layouts.
 
@@ -116,6 +138,9 @@ capture from the official app is the most useful thing you can share.
 
 ## Credits
 
+- [HarukaYamamoto0's Attack Shark X11 driver](https://github.com/HarukaYamamoto0/attack-shark-x11-driver)
+  for documenting the shared protocol: status events, the read handshake, profiles and the
+  `0x10` warning all came from there.
 - Keyboard and mouse input icons by [amanz](https://amanz.itch.io/keyboard-mouse-icon-pack-free) (CC0).
 - Built with [egui](https://github.com/emilk/egui) and [hidapi](https://github.com/ruabmbua/hidapi-rs).
 

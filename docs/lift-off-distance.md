@@ -5,6 +5,10 @@ It does nothing. The app saves your choice to its own settings file and redraws 
 switch, but **never sends it to the mouse**. The mouse keeps using its firmware's built-in
 lift-off distance no matter what you pick.
 
+The firmware *does* have a lift-off field, which the official app never touches. Writing it
+directly doesn't help either: the mouse stores the value, but the tracking cutoff stays the
+same (see [section 4](#4-setting-the-firmware-field-directly)).
+
 That's why Rust Shark doesn't offer the setting. This page shows how that was established,
 so you can check it yourself.
 
@@ -19,7 +23,8 @@ Tested with the official app at `C:\Program Files (x86)\Attack SharkX6Mouse\Mous
 | Did the click register in the app? | Yes. `pro.data` was rewritten and the stored value changed from 1 mm to 2 mm. |
 | Every instruction in `Mouse.exe` that touches the stored value | 5 instructions: UI redraw, store, change check (×2), reset to default. **None builds a packet.** |
 | Any other way for `Mouse.exe` to talk to the mouse? | No. It only calls `SetFeature` / `GetFeature` on its HID driver DLL, and both were logged. |
-| Protocol | None of the six settings commands (`04`, `05`, `06`, `08`, `09`, `0c`) has a lift-off field. |
+| Packets the official app sends | Rebuilt byte for byte from settings with no lift-off value, so none depend on the switch. |
+| Writing the firmware's own lift-off field (0.7 / 1 / 2 mm) | Accepted and stored, but a paper-stack test showed **no change in the tracking cutoff**. |
 
 ## 1. Live capture
 
@@ -106,7 +111,7 @@ and the `0x531` handler, which only updates the radio buttons:
 40f54c: call dword ptr [eax + 0x1c0]         ; radio->Selected(true): UI only
 ```
 
-## 3. The protocol has no field for it
+## 3. The official packets don't depend on it
 
 Every setting the official app can change is sent with one of six commands (see the
 [protocol notes](../README.md#protocol-notes)). Rust Shark builds those packets from a
@@ -114,9 +119,30 @@ settings model that has **no lift-off value at all**, and its tests check the ou
 for byte against packets captured from the official app. They match, so none of the
 official packets can depend on the lift-off switch.
 
-Whether the sensor *could* be told a different lift-off distance through some command
-that this app never sends is a separate question; nothing in the official software
-does it.
+## 4. Setting the firmware field directly
+
+The [Attack Shark X11 driver docs](https://github.com/HarukaYamamoto0/attack-shark-x11-driver/blob/main/docs/protocols/dpi-protocol.md)
+show that this firmware family keeps a lift-off value in the **high nibble of byte 3** of
+the DPI packet (`04`): `0` = 1 mm, `1` = 2 mm, `2` = 0.7 mm. The low nibble is angle snap.
+The official X6 app always leaves it at `0`.
+
+The X6's sensor (PixArt PAW3395) supports lift-off settings in hardware, so this was worth
+testing. Each value was written to the mouse, accepted (status event `03 10 50 00 04`) and
+read back unchanged:
+
+```text
+04 38 01 21 01 01 01 01 09 09 …   byte 3 = 0x21: lift-off 0.7 mm, angle snap on
+04 38 01 11 01 01 01 01 09 09 …   byte 3 = 0x11: lift-off 2 mm, angle snap on
+```
+
+Then the mouse was raised on two equal paper stacks (one under each side, sensor over the
+pad), adding sheets until tracking almost stopped at **2 mm**. At that same height, with
+**0.7 mm** set, the mouse **was still tracking**. If the field worked, 0.7 mm would have lost
+tracking far lower, at roughly a third of the height.
+
+So the firmware stores the value but doesn't pass it to the sensor. The X11 author found the
+same on the X11. Storing a byte proves little here: the X6 also stores motion sync in two
+different places without complaint.
 
 ## Check it yourself
 
