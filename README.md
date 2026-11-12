@@ -34,6 +34,8 @@ service, and it starts instantly.
 - **DPI indicator**: blink, static or off when you change DPI (a firmware option the
   official app doesn't expose)
 - **System tray**: close to tray, start with Windows, start minimized
+- **Backups**: save or restore everything as one file; automatic backups at startup and
+  before anything is deleted, reset, imported or restored (last 20 kept)
 
 ### Known limits
 

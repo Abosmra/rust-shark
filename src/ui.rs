@@ -53,6 +53,13 @@ enum Dirty {
     Macros,
 }
 
+/// Profiles page actions that wait for the confirm dialog.
+#[derive(Clone, Copy)]
+enum ProfileConfirm {
+    Delete,
+    Reset,
+}
+
 #[derive(Clone, Copy)]
 enum Confirm {
     Wipe,
@@ -81,8 +88,9 @@ pub struct App {
     /// Waiting for one key to add (modifiers held when it started).
     capture_key: Option<egui::Modifiers>,
     confirm: Option<Confirm>,
-    /// "Delete profile" was clicked; waiting for the confirm dialog.
-    confirm_delete_profile: bool,
+    profile_confirm: Option<ProfileConfirm>,
+    /// A backup picked to restore, waiting for the confirm dialog.
+    restore: Option<Box<Config>>,
     told_no_reply: bool,
     editing_event: bool,
     macro_search: String,
@@ -231,24 +239,56 @@ fn load_gear(ctx: &egui::Context) -> Vec<(egui::TextureHandle, f64)> {
 /// `Some(true)` = confirmed, `Some(false)` = cancelled, `None` = still open.
 fn confirm_modal(ctx: &egui::Context, title: &str, body: &str, yes: &str) -> Option<bool> {
     let mut answer = None;
-    let mr = egui::Modal::new(egui::Id::new("confirm")).show(ctx, |ui| {
-        ui.set_width(360.0);
-        ui.label(RichText::new(title).size(18.0).strong());
-        ui.add_space(6.0);
-        ui.label(RichText::new(body).color(MUTED));
-        ui.add_space(14.0);
-        ui.horizontal(|ui| {
-            if ui.add(egui::Button::new(RichText::new(yes).color(BAD)).min_size(vec2(120.0, 34.0))).clicked() {
-                answer = Some(true);
-            }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.add(egui::Button::new(RichText::new("Cancel").color(Color32::WHITE).strong()).fill(ACCENT).min_size(vec2(120.0, 34.0))).clicked() {
+    let frame = egui::Frame::new()
+        .fill(PANEL)
+        .stroke(Stroke::new(1.0_f32, BORDER))
+        .corner_radius(CornerRadius::same(16))
+        .inner_margin(Margin::same(24))
+        .shadow(egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(110) });
+    let mr = egui::Modal::new(egui::Id::new("confirm"))
+        .frame(frame)
+        .backdrop_color(Color32::from_black_alpha(150))
+        .show(ctx, |ui| {
+            let w = 340.0;
+            ui.set_width(w);
+            ui.label(RichText::new(title).size(18.0).strong().color(TEXT));
+            ui.add_space(8.0);
+            ui.label(RichText::new(body).size(13.5).color(MUTED));
+            ui.add_space(22.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                let size = vec2((w - 10.0) / 2.0, 38.0);
+                let danger = egui::Button::new(RichText::new(yes).color(BAD).strong())
+                    .fill(BAD.gamma_multiply(0.12))
+                    .stroke(Stroke::new(1.0_f32, BAD.gamma_multiply(0.35)))
+                    .corner_radius(CornerRadius::same(10))
+                    .min_size(size);
+                if ui.add(danger).clicked() {
+                    answer = Some(true);
+                }
+                let cancel = egui::Button::new(RichText::new("Cancel").color(Color32::WHITE).strong())
+                    .fill(ACCENT)
+                    .corner_radius(CornerRadius::same(10))
+                    .min_size(size);
+                if ui.add(cancel).clicked() {
                     answer = Some(false);
                 }
             });
         });
-    });
     answer.or(mr.should_close().then_some(false))
+}
+
+/// "just now", "5 min ago", "3 h ago", "2 days ago".
+fn ago(secs: u64) -> String {
+    match secs {
+        0..60 => "just now".into(),
+        60..3600 => format!("{} min ago", secs / 60),
+        3600..86400 => format!("{} h ago", secs / 3600),
+        _ => match secs / 86400 {
+            1 => "yesterday".into(),
+            d => format!("{d} days ago"),
+        },
+    }
 }
 
 fn load_png(ctx: &egui::Context, name: &str, bytes: &[u8]) -> Option<egui::TextureHandle> {
@@ -281,7 +321,8 @@ impl App {
             sel_delay: false,
             capture_key: None,
             confirm: None,
-            confirm_delete_profile: false,
+            profile_confirm: None,
+            restore: None,
             told_no_reply: false,
             editing_event: false,
             macro_search: String::new(),
@@ -302,6 +343,7 @@ impl App {
             icons: load_input_icons(&cc.egui_ctx),
         };
         app.applied = (app.cfg.profiles.clone(), app.cfg.active);
+        app.cfg.snapshot("startup");
         app.mouse_tex = load_mouse_texture(&cc.egui_ctx, app.cfg.black_mouse);
         if app.cfg.check_updates && std::env::var_os("SHARK_OFFLINE").is_none() {
             app.update = Some(crate::update::check(cc.egui_ctx.clone()));
@@ -1102,6 +1144,70 @@ impl App {
                 }
             });
         });
+        ui.add_space(12.0);
+        card(ui, "Backups", |ui| {
+            setting_row(ui, "Save a backup", "All profiles, macros and settings in one file", |ui| {
+                if ui.button("Save…").clicked() {
+                    if let Some(path) = rfd::FileDialog::new().add_filter("Rust Shark backup", &["json"]).set_file_name("rust-shark-backup.json").save_file() {
+                        let ok = serde_json::to_string_pretty(&self.cfg).ok().is_some_and(|s| std::fs::write(&path, s).is_ok());
+                        self.toast(if ok { "Backup saved" } else { "Couldn't save the file" });
+                    }
+                }
+            });
+            ui.separator();
+            setting_row(ui, "Restore a backup", "Replaces everything here with a backup file", |ui| {
+                if ui.button("Open…").clicked() {
+                    if let Some(path) = rfd::FileDialog::new().add_filter("Rust Shark backup", &["json"]).pick_file() {
+                        match Config::from_file(&path) {
+                            Some(c) => self.restore = Some(Box::new(c)),
+                            None => self.toast("That file isn't a Rust Shark backup"),
+                        }
+                    }
+                }
+            });
+            ui.separator();
+            setting_row(ui, "Automatic backups", &format!("Made at startup and before anything is deleted, reset, imported or restored. The last {} are kept.", store::KEEP_BACKUPS), |ui| {
+                if ui.button("Open folder").clicked() {
+                    let _ = std::process::Command::new("explorer").arg(store::backups_dir()).spawn();
+                }
+            });
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+            for b in store::list_backups().into_iter().take(5) {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(ago(now.saturating_sub(b.at))).size(13.0));
+                    ui.label(RichText::new(b.why.replace('-', " ")).size(12.0).color(MUTED));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.button("Restore").clicked() {
+                            match Config::from_file(&b.path) {
+                                Some(c) => self.restore = Some(Box::new(c)),
+                                None => self.toast("That backup can't be read"),
+                            }
+                        }
+                    });
+                });
+            }
+        });
+        if let Some(c) = &self.restore {
+            let n = |k: usize| format!("{k} profile{}", if k == 1 { "" } else { "s" });
+            let body = format!(
+                "Everything here ({}) is replaced by the backup ({}). What's here now is backed up first.",
+                n(self.cfg.profiles.len()),
+                n(c.profiles.len())
+            );
+            if let Some(yes) = confirm_modal(ui.ctx(), "Restore this backup?", &body, "Restore") {
+                let c = self.restore.take().filter(|_| yes);
+                if let Some(c) = c {
+                    self.cfg.snapshot("restore");
+                    let window = self.cfg.window;
+                    self.cfg = Config { window, library_imported: true, ..*c };
+                    self.cfg.save();
+                    self.sel_macro = 0;
+                    self.sel_event = None;
+                    self.mark(Dirty::Full);
+                    self.toast("Backup restored");
+                }
+            }
+        }
         ui.add_space(12.0);
         card(ui, "Updates", |ui| {
             setting_row(ui, "Check for updates", "At startup, ask GitHub if a newer release exists. Nothing downloads on its own.", |ui| {
@@ -2379,11 +2485,15 @@ impl App {
                 if yes {
                     match what {
                         Confirm::Wipe => {
+                            self.cfg.snapshot("wipe-macro");
                             m.events.clear();
                             self.sel_event = None;
                             self.editing_event = false;
                         }
-                        Confirm::DeleteMacro => delete = true,
+                        Confirm::DeleteMacro => {
+                            self.cfg.snapshot("delete-macro");
+                            delete = true;
+                        }
                     }
                 }
                 self.confirm = None;
@@ -2694,18 +2804,7 @@ impl App {
                     self.rename = Some(self.cfg.profile().name.clone());
                 }
                 if ui.add_enabled(self.cfg.profiles.len() > 1, egui::Button::new("Delete")).clicked() {
-                    self.confirm_delete_profile = true;
-                }
-                if self.confirm_delete_profile {
-                    let body = format!("“{}” and all its settings and macros will be gone. This can't be undone.", self.cfg.profile().name);
-                    if let Some(yes) = confirm_modal(ui.ctx(), "Delete this profile?", &body, "Delete profile") {
-                        if yes && self.cfg.profiles.len() > 1 {
-                            self.cfg.profiles.remove(self.cfg.active);
-                            self.cfg.active = 0;
-                            self.mark(Dirty::Full);
-                        }
-                        self.confirm_delete_profile = false;
-                    }
+                    self.profile_confirm = Some(ProfileConfirm::Delete);
                 }
             });
             if let Some(mut name) = self.rename.take() {
@@ -2736,6 +2835,7 @@ impl App {
                 if ui.button("Import").clicked() {
                     match store::import_official() {
                         Some(ps) => {
+                            self.cfg.snapshot("import");
                             let n = ps.len();
                             self.cfg.profiles.extend(ps.into_iter().map(|mut p| {
                                 p.name = format!("{} (imported)", p.name);
@@ -2751,12 +2851,35 @@ impl App {
             ui.separator();
             setting_row(ui, "Factory defaults", "Resets this profile to the mouse's defaults", |ui| {
                 if ui.button(RichText::new("Reset").color(BAD)).clicked() {
-                    let name = self.cfg.profile().name.clone();
-                    *self.p() = Profile { name, ..Profile::default() };
-                    self.mark(Dirty::Full);
+                    self.profile_confirm = Some(ProfileConfirm::Reset);
                 }
             });
         });
+        if let Some(what) = self.profile_confirm {
+            let name = self.cfg.profile().name.clone();
+            let (title, body, yes) = match what {
+                ProfileConfirm::Delete => ("Delete this profile?", format!("“{name}” and all its settings and macros will be gone. This can't be undone."), "Delete profile"),
+                ProfileConfirm::Reset => ("Reset to factory defaults?", format!("Every setting in “{name}” goes back to the mouse's defaults, and its macros are removed. This can't be undone."), "Reset profile"),
+            };
+            if let Some(yes) = confirm_modal(ui.ctx(), title, &body, yes) {
+                if yes {
+                    self.cfg.snapshot(match what {
+                        ProfileConfirm::Delete => "delete-profile",
+                        ProfileConfirm::Reset => "reset-profile",
+                    });
+                    match what {
+                        ProfileConfirm::Delete if self.cfg.profiles.len() > 1 => {
+                            self.cfg.profiles.remove(self.cfg.active);
+                            self.cfg.active = 0;
+                        }
+                        ProfileConfirm::Delete => {}
+                        ProfileConfirm::Reset => *self.p() = Profile { name, ..Profile::default() },
+                    }
+                    self.mark(Dirty::Full);
+                }
+                self.profile_confirm = None;
+            }
+        }
     }
 }
 

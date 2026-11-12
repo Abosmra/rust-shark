@@ -142,9 +142,13 @@ mod import_tests {
 
 #[cfg(test)]
 mod recovery_tests {
+    /// Tests that point SHARK_CONFIG somewhere take turns (it's process-wide).
+    static ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// An unreadable settings file is kept as config.json.bad, never silently overwritten.
     #[test]
     fn unreadable_config_is_backed_up() {
+        let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("rust-shark-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let cfg = dir.join("config.json");
@@ -154,6 +158,27 @@ mod recovery_tests {
         std::env::remove_var("SHARK_CONFIG");
         assert_eq!(how, "recovered");
         assert_eq!(std::fs::read_to_string(dir.join("config.json.bad")).unwrap(), "{ this is not json");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Snapshots land in backups\, skip exact repeats, and read back as the same settings.
+    #[test]
+    fn snapshots_round_trip() {
+        let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("rust-shark-backup-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::env::set_var("SHARK_CONFIG", dir.join("config.json"));
+        let (mut cfg, _) = crate::store::Config::load();
+        cfg.snapshot("one");
+        cfg.snapshot("same"); // identical: skipped
+        let list = crate::store::list_backups();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].why, "one");
+        cfg.profile_mut().name = "Changed".into();
+        let back = crate::store::Config::from_file(&list[0].path).unwrap();
+        assert_ne!(back.profile().name, "Changed");
+        assert!(crate::store::Config::from_file(&dir.join("config.json.missing")).is_none());
+        std::env::remove_var("SHARK_CONFIG");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

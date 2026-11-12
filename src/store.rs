@@ -178,12 +178,68 @@ impl Config {
         }
     }
 
+    /// Copy of these settings in `backups\`, named `<unix secs>-<why>.json`; the oldest
+    /// beyond `KEEP_BACKUPS` are deleted. Skipped when identical to the newest one.
+    pub fn snapshot(&self, why: &str) {
+        let Ok(json) = serde_json::to_string_pretty(self) else { return };
+        let dir = backups_dir();
+        let list = list_backups();
+        if list.first().and_then(|b| std::fs::read_to_string(&b.path).ok()).as_deref() == Some(json.as_str()) {
+            return;
+        }
+        let _ = std::fs::create_dir_all(&dir);
+        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let _ = std::fs::write(dir.join(format!("{secs}-{why}.json")), json);
+        for old in list.iter().skip(KEEP_BACKUPS - 1) {
+            let _ = std::fs::remove_file(&old.path);
+        }
+    }
+
+    /// Settings from a backup file. None if it isn't a Rust Shark backup.
+    pub fn from_file(path: &std::path::Path) -> Option<Config> {
+        let c: Config = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+        if c.profiles.is_empty() {
+            return None;
+        }
+        Some(Config { active: c.active.min(c.profiles.len() - 1), ..c })
+    }
+
     pub fn profile(&self) -> &Profile {
         &self.profiles[self.active]
     }
     pub fn profile_mut(&mut self) -> &mut Profile {
         &mut self.profiles[self.active]
     }
+}
+
+/// Automatic backups kept in `backups\` (newest first; older ones are deleted).
+pub const KEEP_BACKUPS: usize = 20;
+
+pub fn backups_dir() -> PathBuf {
+    config_path().with_file_name("backups")
+}
+
+pub struct Backup {
+    pub path: PathBuf,
+    /// Unix seconds when it was made.
+    pub at: u64,
+    /// What it was made before, e.g. "startup", "delete-profile".
+    pub why: String,
+}
+
+/// Automatic backups, newest first.
+pub fn list_backups() -> Vec<Backup> {
+    let mut v: Vec<Backup> = std::fs::read_dir(backups_dir())
+        .into_iter()
+        .flatten()
+        .filter_map(|e| {
+            let path = e.ok()?.path();
+            let (at, why) = path.file_stem()?.to_str()?.split_once('-')?;
+            Some(Backup { at: at.parse().ok()?, why: why.to_string(), path })
+        })
+        .collect();
+    v.sort_by(|a, b| b.at.cmp(&a.at));
+    v
 }
 
 fn u32_at(d: &[u8], o: usize) -> Option<u32> {
