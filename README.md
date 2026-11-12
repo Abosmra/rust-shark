@@ -66,7 +66,7 @@ The app is `target/release/rust-shark.exe`. Close the official Attack Shark app 
 both can't talk to the receiver at the same time.
 
 Settings are stored in `%APPDATA%\RustShark\config.json`, automatic backups in
-`%APPDATA%\RustSharkackups\`.
+`%APPDATA%\RustShark\backups\`.
 
 ```bash
 cargo test
