@@ -35,7 +35,11 @@ service, and it starts instantly.
   official app doesn't expose)
 - **System tray**: close to tray, start with Windows, start minimized
 - **Backups**: save or restore everything as one file; automatic backups at startup and
-  before anything is deleted, reset, imported or restored (last 20 kept)
+  before anything is deleted, reset, imported or restored (last 20 kept, can be turned off)
+- **Safe by default**: deleting or resetting asks first, and Rust Shark never sends the
+  firmware-update report (`0x10`)
+- **Update check**: at startup it asks GitHub whether a newer release exists and shows a link.
+  That's its only network request; nothing downloads on its own, and it can be turned off
 
 ### Known limits
 
@@ -61,7 +65,8 @@ cargo build --release
 The app is `target/release/rust-shark.exe`. Close the official Attack Shark app first:
 both can't talk to the receiver at the same time.
 
-Settings are stored in `%APPDATA%\RustShark\config.json`.
+Settings are stored in `%APPDATA%\RustShark\config.json`, automatic backups in
+`%APPDATA%\RustSharkackups\`.
 
 ```bash
 cargo test
@@ -73,11 +78,11 @@ CI builds and tests every push. To publish a release, bump `version` in `Cargo.t
 push a tag; the workflow attaches the built `.exe`:
 
 ```bash
-git tag v0.2.0
+git tag v1.2.0
 ```
 
 ```bash
-git push origin v0.2.0
+git push origin v1.2.0
 ```
 
 ## Project layout
@@ -88,6 +93,8 @@ git push origin v0.2.0
 | `src/device.rs` | HID connection, background writer thread, status reports (battery, DPI changes) |
 | `src/store.rs` | Config file, import from the official app's `pro.data` / `macro.data` |
 | `src/keys.rs` | Button functions, key codes and names |
+| `src/tray.rs` | System tray icon, start with Windows |
+| `src/update.rs` | The startup check for a newer GitHub release |
 | `src/ui.rs` | The egui interface |
 | `tools/` | Scripts that generate the logo and the embedded icon data |
 | `tools/capture-shim/` | Logging stand-in for the official app's HID driver, to capture what it sends |
@@ -105,12 +112,14 @@ which describe the same firmware family in much more detail. Useful if you're wr
 > Never send or read report `0x10`. On this firmware family it puts the mouse into its
 > bootloader (firmware-update mode). Rust Shark never uses it.
 
-- **USB IDs**: VID `0x1D57`, PID `0xFA60` (2.4 GHz receiver), `0xFA61` (wired).
+- **USB IDs**: VID `0x1D57`, PID `0xFA60` (2.4 GHz receiver), `0xFA61` (wired). Other X6
+  batches are reported to use `0xFA62` / `0xFA56`; those aren't tested or supported yet.
 - **Writes** are HID feature reports on the interface with usage page `0x0B`, sent at their
   exact length. Packet: `[cmd][len][01][payload…][sum16 hi][sum16 lo]`, where the checksum
   is the sum of bytes from index 3. The `01` is the profile number.
 - **Status** comes as 5-byte input reports on usage page `0x0A`: `03 <device> <event> <p1> <p2>`.
-  The X6 reports device ID `0x10`.
+  The device ID differs between X6 batches (`0x10` on the one tested here, `0x85` on others),
+  so match on the event byte only.
 
   | Event | Meaning |
   | --- | --- |
@@ -130,7 +139,7 @@ which describe the same firmware family in much more detail. Useful if you're wr
 | `05` | 15 | Lighting mode, speed, brightness, color, sleep timers, key response |
 | `06` | 9 | Polling: `1` = 1000 Hz, `2` = 500, `4` = 250, `8` = 125, plus its inverse |
 | `08` | 59 | Button map: 18 slots × 3 bytes (function, shortcut `[0x11, mods, key]`, macro `[0x12, 0, slot+1]`) |
-| `09` | 64 ×3 | Macro upload: 131-byte buffer in 3 chunks; event = delay byte (`ms/10`, press `0x01` / release `0x81`) + key code; max 50 events |
+| `09` | 64 ×3 | Macro upload: 131-byte buffer in 3 chunks; event = delay byte (`ms/10` in bits 0–6, bit 7 set on release) + key code; max 50 events |
 | `0b` | 8 | Firmware version (read only) |
 | `0c` | 10 | Active profile and number of profiles (`01 fe 01 fe` = profile 1 of 1). Rust Shark sends it before a full write. |
 
