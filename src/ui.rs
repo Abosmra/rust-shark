@@ -81,6 +81,8 @@ pub struct App {
     /// Waiting for one key to add (modifiers held when it started).
     capture_key: Option<egui::Modifiers>,
     confirm: Option<Confirm>,
+    /// "Delete profile" was clicked; waiting for the confirm dialog.
+    confirm_delete_profile: bool,
     told_no_reply: bool,
     editing_event: bool,
     macro_search: String,
@@ -223,6 +225,32 @@ fn load_gear(ctx: &egui::Context) -> Vec<(egui::TextureHandle, f64)> {
         .collect()
 }
 
+/// Destructive confirm. The buttons are deliberately in the opposite order from the
+/// save banner (danger on the left, safe Cancel on the right and highlighted), so a
+/// reflex click on the usual spot cancels instead of deleting.
+/// `Some(true)` = confirmed, `Some(false)` = cancelled, `None` = still open.
+fn confirm_modal(ctx: &egui::Context, title: &str, body: &str, yes: &str) -> Option<bool> {
+    let mut answer = None;
+    let mr = egui::Modal::new(egui::Id::new("confirm")).show(ctx, |ui| {
+        ui.set_width(360.0);
+        ui.label(RichText::new(title).size(18.0).strong());
+        ui.add_space(6.0);
+        ui.label(RichText::new(body).color(MUTED));
+        ui.add_space(14.0);
+        ui.horizontal(|ui| {
+            if ui.add(egui::Button::new(RichText::new(yes).color(BAD)).min_size(vec2(120.0, 34.0))).clicked() {
+                answer = Some(true);
+            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui.add(egui::Button::new(RichText::new("Cancel").color(Color32::WHITE).strong()).fill(ACCENT).min_size(vec2(120.0, 34.0))).clicked() {
+                    answer = Some(false);
+                }
+            });
+        });
+    });
+    answer.or(mr.should_close().then_some(false))
+}
+
 fn load_png(ctx: &egui::Context, name: &str, bytes: &[u8]) -> Option<egui::TextureHandle> {
     let img = image::load_from_memory(bytes).ok()?.to_rgba8();
     let (w, h) = img.dimensions();
@@ -253,6 +281,7 @@ impl App {
             sel_delay: false,
             capture_key: None,
             confirm: None,
+            confirm_delete_profile: false,
             told_no_reply: false,
             editing_event: false,
             macro_search: String::new(),
@@ -2341,41 +2370,22 @@ impl App {
                 });
             });
 
-        // Destructive confirm. The buttons are deliberately in the opposite order from the
-        // save banner (danger on the left, safe Cancel on the right and highlighted), so a
-        // reflex click on the usual spot cancels instead of deleting.
         if let Some(what) = self.confirm {
             let (title, body, yes) = match what {
                 Confirm::Wipe => ("Wipe all actions?", format!("Removes all {} actions from “{}”. This can't be undone.", m.events.len(), macro_name(&m)), "Wipe all"),
                 Confirm::DeleteMacro => ("Delete this macro?", format!("“{}” and its actions will be gone, and buttons using it go back to their default. This can't be undone.", macro_name(&m)), "Delete macro"),
             };
-            let mut close = false;
-            let mr = egui::Modal::new(egui::Id::new("confirm")).show(ui.ctx(), |ui| {
-                ui.set_width(360.0);
-                ui.label(RichText::new(title).size(18.0).strong());
-                ui.add_space(6.0);
-                ui.label(RichText::new(body).color(MUTED));
-                ui.add_space(14.0);
-                ui.horizontal(|ui| {
-                    if ui.add(egui::Button::new(RichText::new(yes).color(BAD)).min_size(vec2(120.0, 34.0))).clicked() {
-                        match what {
-                            Confirm::Wipe => {
-                                m.events.clear();
-                                self.sel_event = None;
-                                self.editing_event = false;
-                            }
-                            Confirm::DeleteMacro => delete = true,
+            if let Some(yes) = confirm_modal(ui.ctx(), title, &body, yes) {
+                if yes {
+                    match what {
+                        Confirm::Wipe => {
+                            m.events.clear();
+                            self.sel_event = None;
+                            self.editing_event = false;
                         }
-                        close = true;
+                        Confirm::DeleteMacro => delete = true,
                     }
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.add(egui::Button::new(RichText::new("Cancel").color(Color32::WHITE).strong()).fill(ACCENT).min_size(vec2(120.0, 34.0))).clicked() {
-                            close = true;
-                        }
-                    });
-                });
-            });
-            if close || mr.should_close() {
+                }
                 self.confirm = None;
             }
         }
@@ -2684,9 +2694,18 @@ impl App {
                     self.rename = Some(self.cfg.profile().name.clone());
                 }
                 if ui.add_enabled(self.cfg.profiles.len() > 1, egui::Button::new("Delete")).clicked() {
-                    self.cfg.profiles.remove(self.cfg.active);
-                    self.cfg.active = 0;
-                    self.mark(Dirty::Full);
+                    self.confirm_delete_profile = true;
+                }
+                if self.confirm_delete_profile {
+                    let body = format!("“{}” and all its settings and macros will be gone. This can't be undone.", self.cfg.profile().name);
+                    if let Some(yes) = confirm_modal(ui.ctx(), "Delete this profile?", &body, "Delete profile") {
+                        if yes && self.cfg.profiles.len() > 1 {
+                            self.cfg.profiles.remove(self.cfg.active);
+                            self.cfg.active = 0;
+                            self.mark(Dirty::Full);
+                        }
+                        self.confirm_delete_profile = false;
+                    }
                 }
             });
             if let Some(mut name) = self.rename.take() {

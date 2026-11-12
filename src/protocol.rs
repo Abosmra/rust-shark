@@ -350,24 +350,25 @@ pub fn all_macro_uploads(p: &Profile) -> Vec<(u8, Vec<Vec<u8>>)> {
 /// Messages pushed by the receiver on the status collection (report 0x03).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum StatusMsg {
-    /// state: 1 on battery, 2 full, 3 charging; level 1..=10
+    /// state: 1 on battery, 2 full, 3 charging; level 0..=10
     Battery { state: u8, level: u8 },
     /// Write result for `report` (0x50 event): accepted or rejected (e.g. bad checksum).
     Ack { ok: bool, report: u8 },
     /// The mouse switched DPI level itself (0-based).
     DpiLevel(u8),
-    Other(u16),
+    Other(u8),
 }
 
 pub fn parse_status(r: &[u8]) -> Option<StatusMsg> {
     if r.len() < 5 || r[0] != 0x03 {
         return None;
     }
-    let id = u16::from_le_bytes([r[1], r[2]]);
-    Some(match id {
-        0x4010 => StatusMsg::Battery { state: r[3], level: r[4] },
-        0x5010 => StatusMsg::Ack { ok: r[3] == 0, report: r[4] },
-        0x1010 if (1..=8).contains(&r[3]) => StatusMsg::DpiLevel(r[3] - 1),
+    // r[1] is the firmware's device ID: 0x10 on the X6 tested here, 0x85 on other X6
+    // batches, so it is not checked
+    Some(match r[2] {
+        0x40 => StatusMsg::Battery { state: r[3], level: r[4] },
+        0x50 => StatusMsg::Ack { ok: r[3] == 0, report: r[4] },
+        0x10 if (1..=8).contains(&r[3]) => StatusMsg::DpiLevel(r[3] - 1),
         other => StatusMsg::Other(other),
     })
 }
@@ -494,6 +495,7 @@ mod tests {
     #[test]
     fn status_parsing() {
         assert_eq!(parse_status(&hex("03 10 40 01 0a")), Some(StatusMsg::Battery { state: 1, level: 10 }));
+        assert_eq!(parse_status(&hex("03 85 40 03 09")), Some(StatusMsg::Battery { state: 3, level: 9 }));
         // captured on the X6: accepted polling write, and a rejected one (bad checksum)
         assert_eq!(parse_status(&hex("03 10 50 00 06")), Some(StatusMsg::Ack { ok: true, report: 0x06 }));
         assert_eq!(parse_status(&hex("03 10 50 01 06")), Some(StatusMsg::Ack { ok: false, report: 0x06 }));

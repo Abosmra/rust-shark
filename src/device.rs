@@ -17,7 +17,7 @@ use windows_sys::Win32::Storage::FileSystem::{CreateFileW, FILE_SHARE_READ, FILE
 pub struct Status {
     pub connected: bool,
     pub wired: bool,
-    /// (state, level 1..=10)
+    /// (state, level 0..=10)
     pub battery: Option<(u8, u8)>,
     /// DPI level the mouse switched to on its own; taken by the UI.
     pub dpi_event: Option<u8>,
@@ -121,6 +121,7 @@ impl Feature {
     }
 
     fn set(&self, data: &[u8]) -> bool {
+        assert!(data.first() != Some(&0x10), "report 0x10 reboots the mouse into its bootloader");
         unsafe { HidD_SetFeature(self.0, data.as_ptr() as _, data.len() as u32) != 0 }
     }
 }
