@@ -7,6 +7,7 @@ mod protocol;
 mod store;
 mod tray;
 mod ui;
+mod update;
 
 /// `rust-shark --selftest <out.txt>`: re-sends the active profile's polling
 /// rate (no actual change) and reports whether the mouse acknowledged it.
@@ -69,6 +70,18 @@ fn window_icon() -> egui::IconData {
     egui::IconData { rgba: img.into_raw(), width, height }
 }
 
+/// Is the saved window's title bar on a connected monitor? (A monitor may have been
+/// unplugged since.) Positions are logical points, so try the common display scales.
+fn on_screen(r: &[f32; 4]) -> bool {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::Graphics::Gdi::{MonitorFromPoint, MONITOR_DEFAULTTONULL};
+    let (x, y) = (r[0] + r[2] / 2.0, r[1] + 12.0);
+    [1.0f32, 1.25, 1.5, 1.75, 2.0].iter().any(|s| {
+        let pt = POINT { x: (x * s) as i32, y: (y * s) as i32 };
+        !unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTONULL) }.is_null()
+    })
+}
+
 /// Window size; SHARK_SIZE=WxH overrides it (used for layout testing).
 fn start_size() -> [f32; 2] {
     std::env::var("SHARK_SIZE")
@@ -92,15 +105,18 @@ fn main() -> eframe::Result<()> {
     }
     // started by Windows (Run key) with "start minimized" on: open straight into the tray
     let hidden = args.iter().any(|a| a == "--autostart") && store::start_minimized_setting();
-    let opts = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Rust Shark")
-            .with_icon(window_icon())
-            .with_inner_size(start_size())
-            .with_min_inner_size([960.0, 620.0])
-            .with_visible(!hidden),
-        ..Default::default()
-    };
+    // reopen where it was last left (unless a test size is forced, or that spot is off-screen now)
+    let saved = store::saved_window().filter(|r| std::env::var_os("SHARK_SIZE").is_none() && on_screen(r));
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("Rust Shark")
+        .with_icon(window_icon())
+        .with_inner_size(saved.map(|r| [r[2], r[3]]).unwrap_or_else(start_size))
+        .with_min_inner_size([960.0, 620.0])
+        .with_visible(!hidden);
+    if let Some(r) = saved {
+        viewport = viewport.with_position([r[0], r[1]]);
+    }
+    let opts = eframe::NativeOptions { viewport, ..Default::default() };
     eframe::run_native("Rust Shark", opts, Box::new(|cc| Ok(Box::new(ui::App::new(cc)))))
 }
 

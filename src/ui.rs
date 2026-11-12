@@ -32,15 +32,15 @@ enum Page {
     Settings,
 }
 
-const PAGES: [(Page, &str, &str); 8] = [
-    (Page::Home, "🏠", "Home"),
-    (Page::Performance, "◎", "Performance"),
-    (Page::Buttons, "⊞", "Buttons"),
-    (Page::Macros, "⏺", "Macros"),
-    (Page::Lighting, "💡", "Lighting"),
-    (Page::Power, "⚡", "Power"),
-    (Page::Profiles, "☰", "Profiles"),
-    (Page::Settings, "⚙", "Settings"),
+const PAGES: [(Page, &str); 8] = [
+    (Page::Home, "Home"),
+    (Page::Performance, "Performance"),
+    (Page::Buttons, "Buttons"),
+    (Page::Macros, "Macros"),
+    (Page::Lighting, "Lighting"),
+    (Page::Power, "Power"),
+    (Page::Profiles, "Profiles"),
+    (Page::Settings, "Settings"),
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -94,10 +94,19 @@ pub struct App {
     macro_search: String,
     mouse_tex: Option<egui::TextureHandle>,
     logo_tex: egui::TextureHandle,
+    /// Settings gear animation: frames (white, tinted when drawn) and their seconds.
+    gear: Vec<(egui::TextureHandle, f64)>,
+    /// When the pointer started hovering Settings (the gear turns once per hover).
+    gear_hover: Option<f64>,
+    /// A newer GitHub release, once the startup check finds one.
+    update: Option<crate::update::Found>,
     /// System tray icon (kept alive for the app's lifetime).
     tray: Option<tray_icon::TrayIcon>,
     /// "Start with Windows" (the Run registry value is the source of truth).
     autostart: bool,
+    /// Window rect seen last frame and when it last changed (saved once it settles).
+    window_seen: Option<[f32; 4]>,
+    window_moved: Instant,
     /// Profiles as last sent to the mouse (what "Reset" goes back to).
     applied: (Vec<Profile>, usize),
     /// Page that's currently scrolled; a different page starts at the top.
@@ -107,15 +116,28 @@ pub struct App {
 }
 
 /// Input icons (amanz, https://amanz.itch.io/) for every code we have art for.
+/// Icons are always drawn at this size (points).
+const ICON_PT: f32 = 28.0;
+
+/// Where to draw an icon centred on `c`, snapped to whole screen pixels so the
+/// pre-scaled texture maps 1:1 (a half-pixel offset blurs one edge).
+fn icon_rect(ui: &Ui, c: Pos2) -> Rect {
+    let ppp = ui.ctx().pixels_per_point();
+    let min = ((c - vec2(ICON_PT, ICON_PT) / 2.0) * ppp).round() / ppp;
+    Rect::from_min_size(min, vec2(ICON_PT, ICON_PT))
+}
+
 fn load_input_icons(ctx: &egui::Context) -> std::collections::HashMap<(u8, bool), egui::TextureHandle> {
     let mut map = std::collections::HashMap::new();
     for code in 0u8..=255 {
         for outlined in [false, true] {
             if let Some(png) = crate::icons_data::icon_png(code, outlined) {
                 if let Ok(img) = image::load_from_memory(png) {
-                    let img = img.to_rgba8();
-                    let (w, h) = img.dimensions();
-                    let c = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], img.as_raw());
+                    // pre-scale once to the exact on-screen size: letting the GPU shrink
+                    // 96 px -> 28 px sampled thin outlines unevenly (one side flat)
+                    let px = (ICON_PT * ctx.pixels_per_point()).round().max(8.0) as u32;
+                    let img = img.resize_exact(px, px, image::imageops::FilterType::Lanczos3).to_rgba8();
+                    let c = egui::ColorImage::from_rgba_unmultiplied([px as usize, px as usize], img.as_raw());
                     map.insert((code, outlined), ctx.load_texture(format!("icon-{code}-{outlined}"), c, egui::TextureOptions::LINEAR));
                 }
             }
@@ -133,11 +155,89 @@ fn load_logo_texture(ctx: &egui::Context) -> egui::TextureHandle {
 }
 
 /// The X6 mouse render (250x400, numbered badges baked in), bundled in the exe.
-fn load_mouse_texture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
-    let img = image::load_from_memory(include_bytes!("../assets/mouse.png")).ok()?.to_rgba8();
+/// The X6 photo (white or black) without button numbers or LED; cut out from the
+/// product shots. Pages draw their own number badges and LED on top.
+fn load_mouse_texture(ctx: &egui::Context, black: bool) -> Option<egui::TextureHandle> {
+    if black {
+        load_png(ctx, "x6-mouse-black", include_bytes!("../assets/mouse_clean_black.png"))
+    } else {
+        load_png(ctx, "x6-mouse", include_bytes!("../assets/mouse_clean.png"))
+    }
+}
+
+
+/// Button badge centres on mouse_clean.png (fractions of its size), in UI order 1..7:
+/// left, right, wheel, side front, side rear, top front, top rear.
+const BADGE_SPOTS: [(f32, f32); 7] = [(0.27, 0.20), (0.73, 0.20), (0.50, 0.18), (0.035, 0.375), (0.035, 0.545), (0.50, 0.37), (0.50, 0.455)];
+
+/// Centre of badge `i` on a mouse photo drawn in `img`.
+fn badge_pos(img: Rect, i: usize) -> Pos2 {
+    let (fx, fy) = BADGE_SPOTS[i];
+    Pos2::new(img.left() + img.width() * fx, img.top() + img.height() * fy)
+}
+
+/// Numbered badge: a small dark "glass" dot with a hairline edge (a light one on the
+/// black mouse), or copper when selected.
+fn draw_badge_on(ui: &Ui, c: Pos2, r: f32, n: usize, selected: bool, light: bool) {
+    let p = ui.painter();
+    // soft shadow so it lifts off the white shell
+    p.circle_filled(c + vec2(0.0, r * 0.12), r * 1.08, Color32::from_black_alpha(40));
+    let mut ink = Color32::WHITE;
+    if selected {
+        p.circle_filled(c, r, ACCENT);
+    } else if light {
+        p.circle(c, r, Color32::from_rgba_unmultiplied(0xF2, 0xF3, 0xF5, 240), Stroke::new(1.0_f32, Color32::from_black_alpha(60)));
+        ink = Color32::from_rgb(0x15, 0x19, 0x20);
+    } else {
+        p.circle(c, r, Color32::from_rgba_unmultiplied(0x15, 0x19, 0x20, 235), Stroke::new(1.0_f32, Color32::from_white_alpha(70)));
+    }
+    // centre the digit's ink, not its text box (the box leaves room for descenders)
+    let galley = p.layout_no_wrap(format!("{n}"), FontId::proportional((r * 1.05).max(9.0)), ink);
+    let ink_rect = galley
+        .rows
+        .iter()
+        .flat_map(|row| &row.glyphs)
+        .map(|g| Rect::from_min_size(g.pos + g.uv_rect.offset, g.uv_rect.size))
+        .fold(Rect::NOTHING, |a, b| a.union(b));
+    let ink_rect = if ink_rect.is_positive() { ink_rect } else { galley.rect };
+    p.galley(c - ink_rect.center().to_vec2(), galley, ink);
+}
+
+/// Width / height of the mouse photo (or the drawn outline's proportions).
+fn photo_aspect(tex: Option<&egui::TextureHandle>) -> f32 {
+    tex.map(|t| t.size_vec2().x / t.size_vec2().y).unwrap_or(250.0 / 400.0)
+}
+
+const GEAR_PT: f32 = 20.0;
+
+/// assets/settings-96.gif from Icons8 (https://icons8.com; credited in the README), a black gear on white, as white-on-transparent frames,
+/// pre-scaled to the on-screen size so the thin outline stays even.
+fn load_gear(ctx: &egui::Context) -> Vec<(egui::TextureHandle, f64)> {
+    use image::AnimationDecoder;
+    let Ok(dec) = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(&include_bytes!("../assets/settings-96.gif")[..])) else { return Vec::new() };
+    let px = (GEAR_PT * ctx.pixels_per_point()).round().max(8.0) as u32;
+    dec.into_frames()
+        .filter_map(Result::ok)
+        .enumerate()
+        .map(|(i, f)| {
+            let (n, d) = f.delay().numer_denom_ms();
+            let mut img = image::DynamicImage::ImageRgba8(f.into_buffer()).resize_exact(px, px, image::imageops::FilterType::Lanczos3).to_rgba8();
+            for p in img.pixels_mut() {
+                let ink = 255 - ((p[0] as u16 + p[1] as u16 + p[2] as u16) / 3) as u8;
+                *p = image::Rgba([255, 255, 255, ((ink as u16 * p[3] as u16) / 255) as u8]);
+            }
+            let c = egui::ColorImage::from_rgba_unmultiplied([px as usize, px as usize], img.as_raw());
+            (ctx.load_texture(format!("gear-{i}"), c, egui::TextureOptions::LINEAR), n as f64 / d.max(1) as f64 / 1000.0)
+        })
+        .collect()
+}
+
+fn load_png(ctx: &egui::Context, name: &str, bytes: &[u8]) -> Option<egui::TextureHandle> {
+    let img = image::load_from_memory(bytes).ok()?.to_rgba8();
     let (w, h) = img.dimensions();
     let color = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], img.as_raw());
-    Some(ctx.load_texture("x6-mouse", color, egui::TextureOptions::LINEAR))
+    let smooth = egui::TextureOptions { mipmap_mode: Some(egui::TextureFilter::Linear), ..egui::TextureOptions::LINEAR };
+    Some(ctx.load_texture(name, color, smooth))
 }
 
 impl App {
@@ -167,24 +267,33 @@ impl App {
             mouse_differs: None,
             editing_event: false,
             macro_search: String::new(),
-            mouse_tex: load_mouse_texture(&cc.egui_ctx),
+            mouse_tex: None, // set below, from the config's mouse colour
             logo_tex: load_logo_texture(&cc.egui_ctx),
+            gear: load_gear(&cc.egui_ctx),
+            gear_hover: None,
+            update: None, // started below if the setting is on
             tray: {
                 crate::tray::set_window(cc);
                 crate::tray::create(cc.egui_ctx.clone())
             },
             autostart: crate::tray::autostart_enabled() && crate::tray::set_autostart(true), // refresh the path in case the exe moved
+            window_seen: None,
+            window_moved: Instant::now(),
             applied: (Vec::new(), 0),
             shown_page: None,
             icons: load_input_icons(&cc.egui_ctx),
         };
         app.applied = (app.cfg.profiles.clone(), app.cfg.active);
+        app.mouse_tex = load_mouse_texture(&cc.egui_ctx, app.cfg.black_mouse);
+        if app.cfg.check_updates && std::env::var_os("SHARK_OFFLINE").is_none() {
+            app.update = Some(crate::update::check(cc.egui_ctx.clone()));
+        }
         if let Some(i) = std::env::var("SHARK_MACRO").ok().and_then(|v| v.parse::<usize>().ok()) {
             app.sel_macro = i;
         }
         // Dev aid: SHARK_PAGE=buttons|macros|lighting|power|profiles opens that page.
         if let Ok(pg) = std::env::var("SHARK_PAGE") {
-            if let Some((p, _, _)) = PAGES.iter().find(|(_, _, l)| l.eq_ignore_ascii_case(&pg)) {
+            if let Some((p, _)) = PAGES.iter().find(|(_, l)| l.eq_ignore_ascii_case(&pg)) {
                 app.page = *p;
             }
         }
@@ -470,6 +579,28 @@ fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &st
     changed
 }
 
+/// Fixed-width label, then controls left to right, all vertically centred.
+/// (setting_row's right-to-left layout reverses multi-control groups.)
+fn label_row(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui)) {
+    label_row_w(ui, label, 0.0, add);
+}
+
+/// Like `label_row`, but if the controls need `need` px and that doesn't fit beside
+/// the label, the label goes on its own line above them (narrow windows).
+fn label_row_w(ui: &mut Ui, label: &str, need: f32, add: impl FnOnce(&mut Ui)) {
+    const LABEL_W: f32 = 96.0;
+    if need > 0.0 && ui.available_width() < LABEL_W + need {
+        ui.label(RichText::new(label).size(15.0));
+        ui.horizontal(add);
+        return;
+    }
+    ui.horizontal(|ui| {
+        let (r, _) = ui.allocate_exact_size(vec2(LABEL_W, 32.0), Sense::hover());
+        ui.painter().text(r.left_center(), Align2::LEFT_CENTER, label, FontId::proportional(15.0), TEXT);
+        add(ui);
+    });
+}
+
 fn setting_row(ui: &mut Ui, label: &str, hint: &str, add: impl FnOnce(&mut Ui)) {
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
@@ -567,6 +698,21 @@ fn shortcut_label(mods: u8, key: u8) -> String {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // remember where the window is, saved once it has stopped moving for a second
+        let (outer, inner, minimized) = ctx.input(|i| (i.viewport().outer_rect, i.viewport().inner_rect, i.viewport().minimized));
+        if let (Some(o), Some(n), false) = (outer, inner, minimized.unwrap_or(false)) {
+            let r = [o.min.x, o.min.y, n.width(), n.height()];
+            if self.cfg.window.is_none_or(|w| w.iter().zip(&r).any(|(a, b)| (a - b).abs() > 1.0)) {
+                if self.window_seen != Some(r) {
+                    self.window_seen = Some(r);
+                    self.window_moved = Instant::now();
+                } else if self.window_moved.elapsed() > Duration::from_secs(1) {
+                    self.cfg.window = Some(r);
+                    self.cfg.save();
+                }
+                ctx.request_repaint_after(Duration::from_millis(300));
+            }
+        }
         // closing the window keeps Rust Shark in the system tray (tray menu > Quit exits)
         if self.cfg.close_to_tray && self.tray.is_some() && ctx.input(|i| i.viewport().close_requested()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -634,9 +780,18 @@ impl eframe::App for App {
             .frame(egui::Frame::new().fill(BG).inner_margin(Margin { left: 14, right: 8, top: 8, bottom: 14 }))
             .show(ctx, |ui| self.nav(ui));
 
+        let bar_room = 16;
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(BG).inner_margin(Margin { left: 8, right: 22, top: 8, bottom: 16 }))
+            .frame(egui::Frame::new().fill(BG).inner_margin(Margin { left: 26, right: 4, top: 8, bottom: bar_room }))
             .show(ctx, |ui| {
+                // page scrollbar: a fixed 10 px bar with 4 px outside it, so in the 22 px lane
+                // it has 8 px on both sides (4 panel margin + 4 on the right, 22 - 10 - 4 on the left)
+                ui.spacing_mut().scroll = egui::style::ScrollStyle {
+                    bar_width: 10.0,
+                    floating_width: 10.0,
+                    bar_outer_margin: 4.0,
+                    ..egui::style::ScrollStyle::floating()
+                };
                 {
                 let mut sa = egui::ScrollArea::vertical().id_salt(self.page as u8).auto_shrink([false, false]);
                 // every page opens scrolled to the top
@@ -645,18 +800,30 @@ impl eframe::App for App {
                     self.shown_page = Some(self.page);
                 }
                 sa
-                }.show(ui, |ui| match self.page {
-                    Page::Home => self.page_home(ui, &status),
-                    Page::Performance => self.page_performance(ui),
-                    Page::Buttons => self.page_buttons(ui),
-                    Page::Macros => self.page_macros(ui, ctx),
-                    Page::Lighting => self.page_lighting(ui),
-                    Page::Power => self.page_power(ui, &status),
-                    Page::Profiles => self.page_profiles(ui),
-                    Page::Settings => self.page_settings(ui),
+                }.show(ui, |ui| {
+                    // the scrollbar floats at the area's right edge: keep the page out of
+                    // its 22 px lane, with a clear gap on its left, so it never covers the cards
+                    egui::Frame::new().inner_margin(Margin { left: 0, right: 22, top: 0, bottom: 0 }).show(ui, |ui| {
+                    match self.page {
+                        Page::Home => self.page_home(ui, &status),
+                        Page::Performance => self.page_performance(ui),
+                        Page::Buttons => self.page_buttons(ui),
+                        Page::Macros => self.page_macros(ui, ctx),
+                        Page::Lighting => self.page_lighting(ui),
+                        Page::Power => self.page_power(ui, &status),
+                        Page::Profiles => self.page_profiles(ui),
+                        Page::Settings => self.page_settings(ui),
+                    }
+                    // room past the end of every page, so the last row can scroll above the
+                    // floating unsaved-changes bar
+                    ui.add_space(84.0);
+                    });
                 });
             });
 
+        // Floating bars sit centred over the page, not the window: the sidebar is 210 wide
+        // and the page has equal 26 px gaps left and right (4 + the 22 px scrollbar lane).
+        const BAR_X: f32 = (210.0 + 26.0 - 26.0) / 2.0;
         // Unsaved-changes banner (only when auto-save is off).
         let pending = !self.cfg.auto_save && !self.dirty.is_empty();
         let shown = ctx.animate_bool_with_time_and_easing(
@@ -670,26 +837,23 @@ impl eframe::App for App {
             let mut reset = false;
             let rise = if reduced_motion() { 0.0 } else { (1.0 - shown) * 16.0 };
             egui::Area::new("unsaved".into())
-                .anchor(Align2::CENTER_BOTTOM, vec2(105.0, -20.0 + rise))
+                .anchor(Align2::CENTER_BOTTOM, vec2(BAR_X, -20.0 + rise))
                 .order(egui::Order::Foreground)
                 .interactable(pending)
                 .show(ctx, |ui| {
                     ui.multiply_opacity(shown);
                     // Rust Shark styling: dark panel, orange accent edge + glow, orange primary button.
-                    let frame = egui::Frame::new()
+                    egui::Frame::new()
                         .fill(PANEL)
                         .stroke(Stroke::new(1.0_f32, ACCENT.gamma_multiply(0.55)))
                         .corner_radius(CornerRadius::same(14))
                         .shadow(egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: ACCENT.gamma_multiply(0.18) })
-                        .inner_margin(Margin { left: 22, right: 12, top: 10, bottom: 10 })
+                        .inner_margin(Margin::same(12))
                         .show(ui, |ui| {
                             ui.set_width(660.0);
                             ui.horizontal(|ui| {
-                                // pulsing dot = "pending"
-                                let t = ui.input(|i| i.time) as f32;
                                 let (r, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
-                                let a = 0.55 + 0.45 * (t * 3.0).sin().abs();
-                                ui.painter().circle_filled(r.center(), 5.0, ACCENT.gamma_multiply(a));
+                                ui.painter().circle_filled(r.center(), 4.0, ACCENT);
                                 ui.vertical(|ui| {
                                     ui.spacing_mut().item_spacing.y = 0.0;
                                     ui.label(RichText::new("Unsaved changes").size(15.0).strong());
@@ -713,12 +877,7 @@ impl eframe::App for App {
                                 });
                             });
                         });
-                    // orange accent bar on the left edge
-                    let r = frame.response.rect;
-                    let bar = Rect::from_min_size(r.left_top() + vec2(0.0, 12.0), vec2(4.0, r.height() - 24.0));
-                    ui.painter().rect_filled(bar, CornerRadius::same(2), ACCENT);
                 });
-            ctx.request_repaint_after(Duration::from_millis(50));
             if save && pending {
                 self.send_pending();
                 self.toast("Saved to the mouse");
@@ -742,14 +901,14 @@ impl eframe::App for App {
             let (mut send, mut ignore) = (false, false);
             let lift = if pending { -96.0 } else { -20.0 };
             egui::Area::new("differs".into())
-                .anchor(Align2::CENTER_BOTTOM, vec2(105.0, lift))
+                .anchor(Align2::CENTER_BOTTOM, vec2(BAR_X, lift))
                 .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
                     egui::Frame::new()
                         .fill(PANEL)
                         .stroke(Stroke::new(1.0_f32, WARN.gamma_multiply(0.6)))
                         .corner_radius(CornerRadius::same(14))
-                        .inner_margin(Margin { left: 22, right: 12, top: 10, bottom: 10 })
+                        .inner_margin(Margin::same(12))
                         .show(ui, |ui| {
                             ui.set_width(660.0);
                             ui.horizontal(|ui| {
@@ -867,7 +1026,28 @@ impl App {
 
     fn nav(&mut self, ui: &mut Ui) {
         ui.add_space(6.0);
-        for (page, icon, label) in PAGES {
+        for (page, label) in PAGES {
+            if page != Page::Settings {
+                self.nav_item(ui, page, label);
+            }
+        }
+        // Settings sits in the bottom-left corner, with the save note just above it
+        ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+            if let Some(&(page, label)) = PAGES.iter().find(|p| p.0 == Page::Settings) {
+                self.nav_item(ui, page, label);
+            }
+            ui.add_space(4.0);
+            if let Some((tag, url)) = self.update.as_ref().and_then(|u| u.get()) {
+                ui.hyperlink_to(RichText::new(format!("Update available: {tag}")).size(12.5).color(ACCENT), url);
+                ui.add_space(2.0);
+            }
+            let note = if self.cfg.auto_save { "Changes save to the mouse automatically" } else { "Auto-save is off: click Save to apply" };
+            ui.label(RichText::new(note).size(11.5).color(MUTED));
+        });
+    }
+
+    fn nav_item(&mut self, ui: &mut Ui, page: Page, label: &str) {
+        {
             let sel = self.page == page;
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
             let rect = pressed(rect, &resp);
@@ -879,28 +1059,62 @@ impl App {
                 Color32::TRANSPARENT
             };
             ui.painter().rect_filled(rect, CornerRadius::same(10), fill);
-            if sel {
-                let bar = Rect::from_min_size(rect.left_top() + vec2(0.0, 10.0), vec2(3.0, 24.0));
-                ui.painter().rect_filled(bar, CornerRadius::same(2), ACCENT);
-            }
             let c = if sel { TEXT } else { MUTED };
-            ui.painter().text(rect.left_center() + vec2(18.0, 0.0), Align2::LEFT_CENTER, icon, FontId::proportional(17.0), if sel { ACCENT } else { c });
-            ui.painter().text(rect.left_center() + vec2(46.0, 0.0), Align2::LEFT_CENTER, label, FontId::proportional(15.0), c);
+            // Settings, alone at the bottom, gets the gear (it turns once when hovered);
+            // the pages above are text only
+            let text_x = if page == Page::Settings && !self.gear.is_empty() {
+                let now = ui.input(|i| i.time);
+                if !resp.hovered() {
+                    self.gear_hover = None;
+                } else if self.gear_hover.is_none() && !reduced_motion() {
+                    self.gear_hover = Some(now);
+                }
+                // frame 0 is the resting pose; its long hold is skipped when turning
+                let mut frame = 0;
+                if let Some(t0) = self.gear_hover {
+                    let mut left = now - t0;
+                    for (i, (_, d)) in self.gear.iter().enumerate().skip(1) {
+                        if left < *d {
+                            frame = i;
+                            break;
+                        }
+                        left -= d;
+                    }
+                    if frame != 0 {
+                        ui.ctx().request_repaint_after(Duration::from_millis(16));
+                    }
+                }
+                let ppp = ui.ctx().pixels_per_point();
+                let min = ((rect.left_center() + vec2(26.0 - GEAR_PT / 2.0, -GEAR_PT / 2.0)) * ppp).round() / ppp;
+                egui::Image::new(&self.gear[frame].0).tint(c).paint_at(ui, Rect::from_min_size(min, vec2(GEAR_PT, GEAR_PT)));
+                44.0
+            } else {
+                18.0
+            };
+            ui.painter().text(rect.left_center() + vec2(text_x, 0.0), Align2::LEFT_CENTER, label, FontId::proportional(15.0), c);
             if resp.clicked() {
                 self.page = page;
                 self.recording = None;
             }
         }
-        ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
-            let note = if self.cfg.auto_save { "Changes save to the mouse automatically" } else { "Auto-save is off: click Save to apply" };
-            ui.label(RichText::new(note).size(11.5).color(MUTED));
-        });
     }
 
     // ---------------------------------------------------------------- Settings
     fn page_settings(&mut self, ui: &mut Ui) {
         ui.heading("Settings");
         ui.add_space(4.0);
+        card(ui, "Your mouse", |ui| {
+            setting_row(ui, "Mouse color", "Which X6 the pictures show", |ui| {
+                let mut black = self.cfg.black_mouse;
+                // right-to-left row: options listed in reverse so they read White | Black
+                if segmented(ui, &mut black, &[(true, "Black"), (false, "White")]) {
+                    self.cfg.black_mouse = black;
+                    self.cfg.save();
+                    self.mouse_tex = load_mouse_texture(ui.ctx(), black);
+                }
+            });
+        });
+        ui.add_space(12.0);
         card(ui, "Saving", |ui| {
             setting_row(
                 ui,
@@ -950,6 +1164,17 @@ impl App {
             });
         });
         ui.add_space(12.0);
+        card(ui, "Updates", |ui| {
+            setting_row(ui, "Check for updates", "At startup, ask GitHub if a newer release exists. Nothing downloads on its own.", |ui| {
+                let mut on = self.cfg.check_updates;
+                if toggle(ui, &mut on).changed() {
+                    self.cfg.check_updates = on;
+                    self.cfg.save();
+                    self.update = on.then(|| crate::update::check(ui.ctx().clone()));
+                }
+            });
+        });
+        ui.add_space(12.0);
         card(ui, "About", |ui| {
             ui.horizontal(|ui| {
                 ui.add(egui::Image::new(&self.logo_tex).fit_to_exact_size(vec2(56.0, 56.0)));
@@ -961,6 +1186,10 @@ impl App {
             ui.separator();
             setting_row(ui, "Input icons", "Keyboard & mouse icons by amanz. Thank you!", |ui| {
                 ui.hyperlink_to("amanz.itch.io", "https://amanz.itch.io/");
+            });
+            ui.separator();
+            setting_row(ui, "Settings icon", "Animated gear by Icons8", |ui| {
+                ui.hyperlink_to("icons8.com", "https://icons8.com");
             });
             ui.separator();
             setting_row(ui, "Settings folder", r"%APPDATA%\RustShark", |ui| {
@@ -1005,19 +1234,15 @@ impl App {
         card(&mut left, "", |ui| {
             if let Some(tex) = &self.mouse_tex {
                 let h = 300.0_f32;
-                let img_w = h * 250.0 / 400.0;
+                let img_w = h * photo_aspect(Some(tex));
                 // keep picture + legend together and centred in the card
                 let legend_w = (ui.available_width() - img_w - 18.0).clamp(120.0, 230.0);
                 let block_w = img_w + 18.0 + legend_w;
                 let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
                 let x0 = row.left() + ((row.width() - block_w) / 2.0).max(0.0);
                 let img = Rect::from_min_size(Pos2::new(x0, row.top()), vec2(img_w, h));
-                let glow = rgb(p.dpi_colors[p.active_dpi as usize % 8]);
-                for k in 0..6 {
-                    let a = 0.05 - k as f32 * 0.008;
-                    ui.painter().circle_filled(img.center() + vec2(0.0, 20.0), 60.0 + k as f32 * 14.0, glow.gamma_multiply(a.max(0.0)));
-                }
                 ui.painter().image(tex.id(), img, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+                draw_led(ui, ui.painter(), img, &p);
 
                 let lx = img.right() + 18.0;
                 let lr = (lx + legend_w).min(row.right());
@@ -1030,21 +1255,19 @@ impl App {
                     if resp.hovered() {
                         ui.painter().rect_filled(r, CornerRadius::same(8), PANEL2);
                     }
-                    ui.painter().circle_filled(Pos2::new(lx + 9.0, y), 10.0, Color32::from_rgb(0xE0, 0x2A, 0x2A));
-                    ui.painter().text(Pos2::new(lx + 9.0, y), Align2::CENTER_CENTER, format!("{}", i + 1), FontId::proportional(11.5), Color32::WHITE);
                     // one line, cut with "…" if it doesn't fit (full text on hover)
                     let label = binding_label(&p, &p.buttons[*slot]);
                     let mut job = egui::text::LayoutJob::single_section(
                         label.clone(),
                         egui::TextFormat { font_id: FontId::proportional(14.0), color: TEXT, ..Default::default() },
                     );
-                    job.wrap = egui::text::TextWrapping::truncate_at_width((lr - lx - 62.0).max(20.0));
+                    job.wrap = egui::text::TextWrapping::truncate_at_width((lr - lx - 36.0).max(20.0));
                     let galley = ui.painter().layout_job(job);
                     if let Some(tex) = self.icon(keys::UI_BUTTON_ICONS[i], resp.hovered()) {
-                        let ir = Rect::from_center_size(Pos2::new(lx + 39.0, y), vec2(28.0, 28.0));
+                        let ir = icon_rect(ui, Pos2::new(lx + 13.0, y));
                         ui.painter().image(tex, ir, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
                     }
-                    ui.painter().galley(Pos2::new(lx + 58.0, y - galley.size().y / 2.0), galley, TEXT);
+                    ui.painter().galley(Pos2::new(lx + 34.0, y - galley.size().y / 2.0), galley, TEXT);
                     if resp.on_hover_text(format!("{name}: {label}")).clicked() {
                         self.sel_button = i;
                         self.page = Page::Buttons;
@@ -1398,25 +1621,23 @@ impl App {
             card_height(&ctx, total);
             card(&mut cols[0], "Select a button", |ui| {
                 if let Some(tex) = self.mouse_tex.clone() {
-                    // The official render (250x400) with numbered badges baked in.
                     let h = 460.0_f32 + img_grow;
-                    let w = h * 250.0 / 400.0;
+                    let w = h * photo_aspect(Some(&tex));
                     let (area, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
                     let rect = Rect::from_center_size(area.center(), vec2(w, h));
                     ui.painter().image(tex.id(), rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
-                    let scale = w / 250.0;
-                    // Badge centers measured from the image, in button order 1..7.
-                    let spots = [(0.306, 0.181), (0.698, 0.181), (0.498, 0.181), (0.050, 0.384), (0.050, 0.531), (0.586, 0.369), (0.586, 0.449)];
-                    for (i, (fx, fy)) in spots.iter().enumerate() {
-                        let c = Pos2::new(rect.left() + rect.width() * fx, rect.top() + rect.height() * fy);
-                        let r = 13.0 * scale;
+                    let r = (w * 0.05).max(9.0);
+                    for i in 0..7 {
+                        let c = badge_pos(rect, i);
                         let resp = ui.interact(Rect::from_center_size(c, vec2(r * 2.6, r * 2.6)), ui.id().with(("spot", i)), Sense::click());
-                        if self.sel_button == i {
-                            ui.painter().circle_stroke(c, r + 4.0, Stroke::new(3.0_f32, ACCENT));
-                            ui.painter().circle_stroke(c, r + 9.0, Stroke::new(1.5_f32, ACCENT.gamma_multiply(0.45)));
+                        let sel = self.sel_button == i;
+                        // a thin halo: copper for the selected button, grey on hover
+                        if sel {
+                            ui.painter().circle_stroke(c, r + 4.0, Stroke::new(1.5_f32, ACCENT.gamma_multiply(0.6)));
                         } else if resp.hovered() {
-                            ui.painter().circle_stroke(c, r + 4.0, Stroke::new(2.0_f32, Color32::from_white_alpha(140)));
+                            ui.painter().circle_stroke(c, r + 4.0, Stroke::new(1.5_f32, Color32::from_black_alpha(90)));
                         }
+                        draw_badge_on(ui, c, r, i + 1, sel, self.cfg.black_mouse);
                         if resp.clicked() {
                             self.sel_button = i;
                         }
@@ -1454,7 +1675,7 @@ impl App {
                     ui.painter().rect_filled(rect, CornerRadius::same(8), if sel { PANEL2 } else if resp.hovered() { BG } else { Color32::TRANSPARENT });
                     ui.painter().text(rect.left_center() + vec2(12.0, 0.0), Align2::LEFT_CENTER, format!("{}", i + 1), FontId::proportional(14.0), if sel { ACCENT } else { MUTED });
                     if let Some(tex) = self.icon(keys::UI_BUTTON_ICONS[i], sel || resp.hovered()) {
-                        let ir = Rect::from_center_size(rect.left_center() + vec2(40.0, 0.0), vec2(28.0, 28.0));
+                        let ir = icon_rect(ui, rect.left_center() + vec2(40.0, 0.0));
                         ui.painter().image(tex, ir, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
                     }
                     // button name gets up to ~40% of the row; the assignment gets the rest
@@ -1486,7 +1707,7 @@ impl App {
                     }
                     for c in codes.iter().rev() {
                         if let Some(tex) = self.icon(*c, active) {
-                            let ir = Rect::from_min_size(Pos2::new(x - 28.0, rect.center().y - 14.0), vec2(28.0, 28.0));
+                            let ir = icon_rect(ui, Pos2::new(x - 14.0, rect.center().y));
                             ui.painter().image(tex, ir, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
                             x -= 30.0;
                         }
@@ -1647,7 +1868,7 @@ impl App {
                     self.macro_search.clear();
                     self.cfg.save();
                 }
-                ui.add(egui::TextEdit::singleline(&mut self.macro_search).hint_text("🔍  Search macros").desired_width(f32::INFINITY).margin(Margin::symmetric(10, 6)));
+                ui.add(egui::TextEdit::singleline(&mut self.macro_search).hint_text("Search macros").desired_width(f32::INFINITY).margin(Margin::symmetric(10, 6)));
                 ui.add_space(2.0);
 
                 let q = self.macro_search.to_lowercase();
@@ -1670,10 +1891,6 @@ impl App {
                         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 58.0), Sense::click());
                         let fill = if sel { PANEL2 } else if resp.hovered() { BG } else { Color32::TRANSPARENT };
                         ui.painter().rect_filled(rect, CornerRadius::same(10), fill);
-                        if sel {
-                            let bar = Rect::from_min_size(rect.left_top() + vec2(0.0, 12.0), vec2(3.0, rect.height() - 24.0));
-                            ui.painter().rect_filled(bar, CornerRadius::same(2), ACCENT);
-                        }
                         let badge_w = if used.is_empty() { 0.0 } else { 14.0 + 26.0 * used.len() as f32 };
                         let unnamed = m.name.trim().is_empty();
                         paint_trunc(ui, rect.left_top() + vec2(14.0, 19.0), Align2::LEFT_CENTER, &macro_name(m), FontId::proportional(15.0),
@@ -1951,13 +2168,13 @@ impl App {
                             ui.painter().text(r.left_center() + vec2(14.0, 0.0), Align2::LEFT_CENTER, format!("{}", i + 1), FontId::proportional(11.5), MUTED);
                             let mut tx = r.left() + 44.0;
                             if let Some(tex) = self.icon(e.code, hot) {
-                                let ir = Rect::from_center_size(Pos2::new(tx + 14.0, r.center().y), vec2(28.0, 28.0));
+                                let ir = icon_rect(ui, Pos2::new(tx + 14.0, r.center().y));
                                 ui.painter().image(tex, ir, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
                                 tx += 36.0;
                             }
                             paint_trunc(ui, Pos2::new(tx, r.center().y), Align2::LEFT_CENTER, &keys::key_name(e.code), FontId::proportional(14.5), TEXT, r.right() - tx - 100.0);
-                            let (arrow, word, c) = if e.down { ("⬇", "press", ACCENT) } else { ("⬆", "release", MUTED) };
-                            ui.painter().text(r.right_center() - vec2(14.0, 0.0), Align2::RIGHT_CENTER, format!("{arrow} {word}"), FontId::proportional(12.0), c);
+                            let (word, c) = if e.down { ("Press", ACCENT) } else { ("Release", MUTED) };
+                            ui.painter().text(r.right_center() - vec2(14.0, 0.0), Align2::RIGHT_CENTER, word, FontId::proportional(12.0), c);
                             if resp.clicked() && !is_sel {
                                 select_now = Some((i, false));
                             }
@@ -1973,7 +2190,7 @@ impl App {
                                     ui.painter().rect(pill, CornerRadius::same(8), if d_sel { PANEL2 } else { PANEL },
                                         Stroke::new(if d_sel { 2.0_f32 } else { 1.0 }, if d_sel { ACCENT } else { BORDER }), egui::StrokeKind::Inside);
                                 }
-                                ui.painter().text(Pos2::new(pill.left() + 18.0, pill.center().y), Align2::CENTER_CENTER, "⏱", FontId::proportional(13.0), MUTED);
+                                ui.painter().text(Pos2::new(pill.left() + 18.0, pill.center().y), Align2::CENTER_CENTER, "Wait", FontId::proportional(12.0), MUTED);
                                 let tx = pill.left() + 36.0;
                                 let mut after = tx + ui.painter().layout_no_wrap(format!("{} ms", e.delay_ms), FontId::proportional(13.5), TEXT).size().x;
                                 if editing {
@@ -2027,7 +2244,7 @@ impl App {
                                             ui.painter().rect_filled(r, CornerRadius::same(8), PANEL2);
                                         }
                                         if let Some(tex) = self.icon(code, hot) {
-                                            let ir = Rect::from_center_size(r.left_center() + vec2(20.0, 0.0), vec2(28.0, 28.0));
+                                            let ir = icon_rect(ui, r.left_center() + vec2(20.0, 0.0));
                                             ui.painter().image(tex, ir, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
                                         }
                                         ui.painter().text(r.left_center() + vec2(42.0, 0.0), Align2::LEFT_CENTER, name, FontId::proportional(14.5), TEXT);
@@ -2040,21 +2257,20 @@ impl App {
                                     ui.label(RichText::new("OTHER").size(11.0).color(MUTED));
                                     let target = sel.or(n_events.checked_sub(1));
                                     // same row look as the mouse actions: glyph in the icon slot, left-aligned label
-                                    let row = |ui: &mut Ui, glyph: &str, name: &str, enabled: bool| {
+                                    let row = |ui: &mut Ui, name: &str, enabled: bool| {
                                         let (r, resp) = ui.allocate_exact_size(vec2(190.0, 36.0), if enabled { Sense::click() } else { Sense::hover() });
                                         if enabled && resp.hovered() {
                                             ui.painter().rect_filled(r, CornerRadius::same(8), PANEL2);
                                         }
                                         let c = if enabled { TEXT } else { MUTED };
-                                        ui.painter().text(r.left_center() + vec2(20.0, 0.0), Align2::CENTER_CENTER, glyph, FontId::proportional(18.0), c);
                                         ui.painter().text(r.left_center() + vec2(42.0, 0.0), Align2::LEFT_CENTER, name, FontId::proportional(14.5), c);
                                         resp
                                     };
-                                    if row(ui, "⌨", "Keyboard key…", true).on_hover_text("Press one key to add it, without recording").clicked() {
+                                    if row(ui, "Keyboard key…", true).on_hover_text("Press one key to add it, without recording").clicked() {
                                         capture_now = true;
                                         ui.close_menu();
                                     }
-                                    if row(ui, "⏱", "Delay", target.is_some()).on_hover_text("Wait after the selected action (or the last one)").clicked() {
+                                    if row(ui, "Delay", target.is_some()).on_hover_text("Wait after the selected action (or the last one)").clicked() {
                                         add_delay = target;
                                         ui.close_menu();
                                     }
@@ -2121,7 +2337,7 @@ impl App {
                         None => "Click an action or delay to select it".into(),
                     };
                     ui.label(RichText::new(label).color(MUTED).size(12.5));
-                    if ui.add_enabled(has, egui::Button::new(if self.editing_event { "✔ Done" } else { "✏ Edit" })).clicked() {
+                    if ui.add_enabled(has, egui::Button::new(if self.editing_event { "Done" } else { "Edit" })).clicked() {
                         self.editing_event = !self.editing_event;
                     }
                     let has = has && !sel_d; // move applies to actions
@@ -2168,12 +2384,12 @@ impl App {
 
                 // ---- record bar
                 ui.add_space(10.0);
-                egui::Frame::new().fill(BG).corner_radius(CornerRadius::same(12)).inner_margin(Margin::symmetric(14, 10)).show(ui, |ui| {
+                egui::Frame::new().fill(BG).corner_radius(CornerRadius::same(12)).inner_margin(Margin::same(12)).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     let narrow = ui.available_width() < 620.0;
                     let mut record_clicked = false;
                     let rec = self.recording.is_some();
-                    let record_btn = || egui::Button::new(RichText::new(if rec { "■  Stop recording" } else { "⏺  Record" }).color(Color32::WHITE).strong())
+                    let record_btn = || egui::Button::new(RichText::new(if rec { "Stop recording" } else { "Record" }).color(Color32::WHITE).strong())
                         .fill(if rec { BAD } else { ACCENT })
                         .min_size(vec2(150.0, 38.0));
                     ui.horizontal_wrapped(|ui| {
@@ -2284,85 +2500,171 @@ impl App {
     fn page_lighting(&mut self, ui: &mut Ui) {
         ui.heading("Lighting");
         ui.add_space(4.0);
+        // Preview on the left, controls on the right; the preview card matches the
+        // right column's height (measured last frame), so neither side has empty space.
+        let gap = 12.0;
+        let total_w = ui.available_width();
+        let left_w = (total_w * 0.36).clamp(240.0, 420.0);
+        let right_w = total_w - left_w - gap;
+        let hv = heights(ui.ctx(), "lighting");
+        let (right_h, overhead) = (hv.first().copied().unwrap_or(0.0), hv.get(1).copied().unwrap_or(70.0));
+        let mut measured = (0.0, overhead);
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            ui.allocate_ui_with_layout(vec2(left_w, 0.0), Layout::top_down(Align::Min), |ui| {
+                // never shorter than the (fixed-size) mouse plus its caption
+                let mouse_h = ((left_w - 36.0) * 1.25).min(340.0);
+                let h = (right_h - overhead).max(mouse_h + 56.0);
+                card_height(ui.ctx(), right_h);
+                card(ui, "Preview", |ui| {
+                    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
+                    let p = self.cfg.profile();
+                    draw_light_preview(ui, rect, p, self.mouse_tex.as_ref());
+                });
+                measured.1 = card_natural(ui.ctx()) - h;
+            });
+            ui.allocate_ui_with_layout(vec2(right_w, 0.0), Layout::top_down(Align::Min), |ui| {
+                self.light_effect_card(ui);
+                ui.add_space(10.0);
+                card(ui, "DPI change", |ui| {
+                    label_row_w(ui, "Indicator", 3.0 * 90.0, |ui| {
+                        let mut v = self.cfg.profile().dpi_indicator.clamp(1, 3);
+                        if segmented(ui, &mut v, &[(1u8, "Blink"), (2u8, "Static"), (3u8, "Off")]) {
+                            self.p().dpi_indicator = v;
+                            self.mark(Dirty::Dpi);
+                        }
+                    });
+                    ui.label(RichText::new("How the LED shows the new DPI level's color when you switch DPI").size(12.0).color(MUTED));
+                });
+                measured.0 = ui.min_rect().height();
+            });
+        });
+        store_heights(ui.ctx(), "lighting", vec![measured.0, measured.1]);
+    }
+
+    fn light_effect_card(&mut self, ui: &mut Ui) {
         card(ui, "Effect", |ui| {
             let mut p = self.cfg.profile().clone();
             let mut changed = false;
-            // Effects grouped into families; each family's variants are the
-            // underlying firmware modes.
-            let fam = keys::LIGHT_FAMILIES.iter().position(|f| f.1.iter().any(|v| v.0 == p.light_mode)).unwrap_or(0);
-            ui.horizontal_wrapped(|ui| {
-                for (k, (name, variants)) in keys::LIGHT_FAMILIES.iter().enumerate() {
-                    let sel = k == fam;
-                    let b = egui::Button::new(RichText::new(*name).color(if sel { Color32::WHITE } else { TEXT }))
-                        .fill(if sel { ACCENT } else { PANEL2 })
-                        .min_size(vec2(130.0, 40.0));
-                    if ui.add(b).clicked() && !sel {
-                        p.light_mode = variants[0].0;
-                        changed = true;
-                    }
-                }
-            });
-            let variants = keys::LIGHT_FAMILIES[fam].1;
-            if variants.len() > 1 {
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(if fam == keys::LIGHT_FAMILIES.len() - 1 { "Style" } else { "Colors" }).color(MUTED));
-                    let opts: Vec<(u8, &str)> = variants.to_vec();
-                    let mut m = p.light_mode;
-                    if segmented(ui, &mut m, &opts) {
-                        p.light_mode = m;
-                        changed = true;
+            let last_id = egui::Id::new("last-light-mode");
+
+            // Lights on/off (Off is its own switch; the six effects fill an even grid)
+            let mut on = p.light_mode != 0;
+            label_row(ui, "Lights", |ui| {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if toggle(ui, &mut on).changed() {
+                    p.light_mode = if on { ui.ctx().data(|d| d.get_temp::<u8>(last_id)).unwrap_or(1) } else { 0 };
+                    changed = true;
                     }
                 });
+            });
+            if p.light_mode != 0 {
+                ui.ctx().data_mut(|d| d.insert_temp(last_id, p.light_mode));
             }
             ui.add_space(8.0);
-            // Only the settings this effect actually uses (same rules as the official app).
-            let (bright, speed, color) = light_controls(p.light_mode);
-            let mut first = true;
-            let mut sep = |ui: &mut Ui| {
-                if !std::mem::replace(&mut first, false) {
-                    ui.separator();
+
+            let fam = keys::LIGHT_FAMILIES.iter().position(|f| f.1.iter().any(|v| v.0 == p.light_mode)).unwrap_or(0);
+            let effects: Vec<usize> = (1..keys::LIGHT_FAMILIES.len()).collect();
+            let cols = 2; // four effects: an even 2 x 2 grid
+            let gap = 8.0;
+            let tile_w = (ui.available_width() - gap * (cols as f32 - 1.0)) / cols as f32;
+            for row in effects.chunks(cols) {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = gap;
+                    for &k in row {
+                        let (name, variants) = keys::LIGHT_FAMILIES[k];
+                        let sel = on && k == fam;
+                        let (r, resp) = ui.allocate_exact_size(vec2(tile_w, 46.0), Sense::click());
+                        let r = pressed(r, &resp);
+                        let fill = if sel { ACCENT } else if resp.hovered() { Color32::from_rgb(0x26, 0x2C, 0x37) } else { PANEL2 };
+                        ui.painter().rect_filled(r, CornerRadius::same(10), fill);
+                        let c = if sel { Color32::WHITE } else if on { TEXT } else { MUTED };
+                        paint_trunc(ui, r.center(), Align2::CENTER_CENTER, name, FontId::proportional(14.5), c, r.width() - 12.0);
+                        if resp.clicked() && !sel {
+                            p.light_mode = variants[0].0;
+                            changed = true;
+                        }
+                    }
+                });
+                ui.add_space(gap - ui.spacing().item_spacing.y);
+            }
+
+            if !on {
+                ui.label(RichText::new("Lights are off. Pick an effect to turn them on.").color(MUTED));
+            } else {
+                let variants = keys::LIGHT_FAMILIES[fam].1;
+                if variants.len() > 1 {
+                    ui.add_space(4.0);
+                    // segmented width: text + padding per option
+                    let need: f32 = variants.iter().map(|v| ui.painter().layout_no_wrap(v.1.to_string(), FontId::proportional(15.0), TEXT).size().x + 34.0).sum();
+                    label_row_w(ui, "Colors", need, |ui| {
+                        let opts: Vec<(u8, &str)> = variants.to_vec();
+                        let mut m = p.light_mode;
+                        if segmented(ui, &mut m, &opts) {
+                            p.light_mode = m;
+                            changed = true;
+                        }
+                    });
                 }
-            };
-            if color {
-                sep(ui);
-                setting_row(ui, "Color", "", |ui| {
-                    changed |= egui::color_picker::color_edit_button_srgb(ui, &mut p.light_color).changed();
-                });
-            }
-            if bright {
-                sep(ui);
-                setting_row(ui, "Brightness", "", |ui| {
-                    changed |= ui.add(egui::Slider::new(&mut p.light_brightness, 1..=8)).changed();
-                });
-            }
-            if speed {
-                sep(ui);
-                setting_row(ui, "Speed", "", |ui| {
-                    changed |= ui.add(egui::Slider::new(&mut p.light_speed, 4..=8)).changed();
-                });
-            }
-            if !(bright || speed || color) {
-                let note = match p.light_mode {
-                    0 => "Lights are off.",
-                    _ => "Each DPI level shows its own color. Set them on the Performance page.",
-                };
-                ui.label(RichText::new(note).color(MUTED));
+                // Only the settings this effect actually uses (same rules as the official app).
+                let (bright, speed, color) = light_controls(p.light_mode);
+                if color {
+                    ui.separator();
+                    // 8 swatches (22 px + 4 px gap) + gap + the custom picker's button
+                    let picker_w = ui.spacing().interact_size.x;
+                    label_row_w(ui, "Color", 8.0 * 26.0 + 8.0 + picker_w + 8.0, |ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        // quick picks, then the custom colour picker
+                        const PRESETS: [[u8; 3]; 8] = [
+                            [255, 0, 0], [255, 200, 0], [0, 255, 0], [0, 255, 255],
+                            [0, 80, 255], [150, 0, 255], [255, 0, 160], [255, 255, 255],
+                        ];
+                        for c in PRESETS {
+                            let (r, resp) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
+                            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+                            ui.painter().circle_filled(r.center(), 9.0, rgb(c));
+                            if p.light_color == c {
+                                ui.painter().circle_stroke(r.center(), 11.0, Stroke::new(1.5_f32, TEXT));
+                            } else if resp.hovered() {
+                                ui.painter().circle_stroke(r.center(), 11.0, Stroke::new(1.0_f32, MUTED));
+                            }
+                            if resp.clicked() && p.light_color != c {
+                                p.light_color = c;
+                                changed = true;
+                            }
+                        }
+                        ui.add_space(8.0);
+                        changed |= egui::color_picker::color_edit_button_srgb(ui, &mut p.light_color).on_hover_text("Custom color").changed();
+                    });
+                }
+                if bright {
+                    ui.separator();
+                    label_row(ui, "Brightness", |ui| {
+                        ui.label(RichText::new("Dim").size(12.0).color(MUTED));
+                        ui.spacing_mut().slider_width = (ui.available_width() - 56.0).clamp(80.0, 320.0);
+                        changed |= ui.add(egui::Slider::new(&mut p.light_brightness, 1..=8).show_value(false)).changed();
+                        ui.label(RichText::new("Bright").size(12.0).color(MUTED));
+                    });
+                }
+                if speed {
+                    ui.separator();
+                    // right = fast: the mouse's speed code is 9 - value, and on the X6 code 1 is
+                    // the fastest (checked by eye; the X11 docs have it the other way round)
+                    label_row(ui, "Speed", |ui| {
+                        ui.label(RichText::new("Slow").size(12.0).color(MUTED));
+                        ui.spacing_mut().slider_width = (ui.available_width() - 48.0).clamp(80.0, 320.0);
+                        changed |= ui.add(egui::Slider::new(&mut p.light_speed, 4..=8).show_value(false)).changed();
+                        ui.label(RichText::new("Fast").size(12.0).color(MUTED));
+                    });
+                }
+                if !(bright || speed || color) {
+                    ui.label(RichText::new("Each DPI level shows its own color. Set them on the Performance page.").color(MUTED));
+                }
             }
             if changed {
                 *self.p() = p;
                 self.mark(Dirty::LightPower);
             }
-        });
-        ui.add_space(10.0);
-        card(ui, "DPI change", |ui| {
-            setting_row(ui, "Indicator", "How the LED shows the new DPI level's color when you switch DPI", |ui| {
-                let mut v = self.cfg.profile().dpi_indicator.clamp(1, 3);
-                if segmented(ui, &mut v, &[(1u8, "Blink"), (2u8, "Static"), (3u8, "Off")]) {
-                    self.p().dpi_indicator = v;
-                    self.mark(Dirty::Dpi);
-                }
-            });
         });
     }
 
@@ -2370,40 +2672,63 @@ impl App {
     fn page_power(&mut self, ui: &mut Ui, st: &crate::device::Status) {
         ui.heading("Power");
         ui.add_space(4.0);
-        card(ui, "Battery", |ui| {
-            ui.horizontal(|ui| {
-                let (rect, _) = ui.allocate_exact_size(vec2(260.0, 84.0), Sense::hover());
-                draw_battery(ui, rect, st.battery.map(|b| b.1), st.battery.is_some_and(|b| b.0 == 3));
-                ui.add_space(16.0);
-                ui.vertical(|ui| {
-                    let pct = st.battery.map_or("?".into(), |b| format!("{}%", b.1.min(10) as u32 * 10));
-                    fixed_text(ui, &pct, FontId::proportional(34.0), TEXT, "100%");
-                    fixed_text(ui, st.battery.map_or("Waiting for the mouse…", |b| battery_state(b.0)), FontId::proportional(15.0), MUTED, "Waiting for the mouse…");
+        // battery (upright) on the left, sleep timers beside it; both cards share a height
+        let gap = 12.0;
+        let total_w = ui.available_width();
+        let left_w = (total_w * 0.32).clamp(220.0, 300.0);
+        let right_w = total_w - left_w - gap;
+        let h = max_of(&heights(ui.ctx(), "power"));
+        let mut n = Vec::new();
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            ui.allocate_ui_with_layout(vec2(left_w, 0.0), Layout::top_down(Align::Min), |ui| {
+                card_height(ui.ctx(), h);
+                card(ui, "Battery", |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(6.0);
+                        let (rect, _) = ui.allocate_exact_size(vec2(76.0, 148.0), Sense::hover());
+                        draw_battery_dir(ui, rect, st.battery.map(|b| b.1), st.battery.is_some_and(|b| b.0 == 3), true);
+                        ui.add_space(10.0);
+                        let pct = st.battery.map_or("?".into(), |b| format!("{}%", b.1.min(10) as u32 * 10));
+                        ui.label(RichText::new(pct).size(34.0).color(TEXT));
+                        ui.label(RichText::new(st.battery.map_or("Waiting for the mouse…", |b| battery_state(b.0))).size(14.0).color(MUTED));
+                        ui.add_space(4.0);
+                        ui.label(RichText::new(if st.battery.is_some() { "Reported in 10% steps" } else { "Move the mouse to wake it" }).size(12.0).color(MUTED));
+                    });
                 });
+                n.push(card_natural(ui.ctx()));
             });
-            ui.label(RichText::new(if st.battery.is_some() { "The mouse reports battery in 10% steps." } else { "Move the mouse to wake it up." }).size(12.0).color(MUTED));
+            ui.allocate_ui_with_layout(vec2(right_w, 0.0), Layout::top_down(Align::Min), |ui| {
+                card_height(ui.ctx(), h);
+                card(ui, "Sleep", |ui| {
+                    let mut p = self.cfg.profile().clone();
+                    let mut changed = false;
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("Sleep after").size(15.0));
+                    ui.label(RichText::new("Dims and saves power when idle").size(12.0).color(MUTED));
+                    ui.add_space(10.0);
+                    ui.spacing_mut().slider_width = (ui.available_width() - 90.0).max(120.0);
+                    let mut half = p.sleep_half_min as u32;
+                    if ui.add(egui::Slider::new(&mut half, 1..=60).custom_formatter(|v, _| format!("{:.1} min", v / 2.0))).changed() {
+                        p.sleep_half_min = half as u8;
+                        changed = true;
+                    }
+                    ui.add_space(22.0);
+                    ui.separator();
+                    ui.add_space(22.0);
+                    ui.label(RichText::new("Deep sleep after").size(15.0));
+                    ui.label(RichText::new("Fully powers down; click to wake").size(12.0).color(MUTED));
+                    ui.add_space(10.0);
+                    changed |= ui.add(egui::Slider::new(&mut p.deep_sleep_min, 1..=60).suffix(" min")).changed();
+                    if changed {
+                        *self.p() = p;
+                        self.mark(Dirty::LightPower);
+                    }
+                });
+                n.push(card_natural(ui.ctx()));
+            });
         });
-        ui.add_space(12.0);
-        card(ui, "Sleep", |ui| {
-            let mut p = self.cfg.profile().clone();
-            let mut changed = false;
-            setting_row(ui, "Sleep after", "Mouse dims and saves power when idle", |ui| {
-                let mut half = p.sleep_half_min as u32;
-                let r = ui.add(egui::Slider::new(&mut half, 1..=60).custom_formatter(|v, _| format!("{:.1} min", v / 2.0)));
-                if r.changed() {
-                    p.sleep_half_min = half as u8;
-                    changed = true;
-                }
-            });
-            ui.separator();
-            setting_row(ui, "Deep sleep after", "Fully powers down; click to wake", |ui| {
-                changed |= ui.add(egui::Slider::new(&mut p.deep_sleep_min, 1..=60).suffix(" min")).changed();
-            });
-            if changed {
-                *self.p() = p;
-                self.mark(Dirty::LightPower);
-            }
-        });
+        store_heights(ui.ctx(), "power", n);
     }
 
     // ---------------------------------------------------------------- Profiles
@@ -2687,14 +3012,14 @@ fn battery_chip(ui: &mut Ui, battery: Option<(u8, u8)>) {
     chip(ui, |ui| {
         let (r, _) = ui.allocate_exact_size(vec2(46.0, 18.0), Sense::hover());
         draw_battery(ui, r, battery.map(|b| b.1), battery.is_some_and(|b| b.0 == 3));
-        fixed_text(ui, &pct_text(battery), FontId::proportional(15.0), TEXT, "100% ⚡");
+        fixed_text(ui, &pct_text(battery), FontId::proportional(15.0), TEXT, "100%");
     });
 }
 
-/// "70%", "70% ⚡" while charging, "?" before the mouse has reported.
+/// "70%", or "?" before the mouse has reported.
 fn pct_text(battery: Option<(u8, u8)>) -> String {
     match battery {
-        Some((state, level)) => format!("{}%{}", level.min(10) as u32 * 10, if state == 3 { " ⚡" } else { "" }),
+        Some((_, level)) => format!("{}%", level.min(10) as u32 * 10),
         None => "?".into(),
     }
 }
@@ -2709,31 +3034,49 @@ fn fixed_text(ui: &mut Ui, text: &str, font: FontId, color: Color32, widest: &st
 /// Battery with 10 cells, one per 10% step the mouse reports.
 /// `None`: skeleton (shimmering empty cells and a "?") until the mouse reports.
 fn draw_battery(ui: &Ui, rect: Rect, level: Option<u8>, charging: bool) {
+    draw_battery_dir(ui, rect, level, charging, false);
+}
+
+/// `upright`: the terminal on top and the cells filling from the bottom.
+fn draw_battery_dir(ui: &Ui, rect: Rect, level: Option<u8>, charging: bool, upright: bool) {
     let p = ui.painter();
     let known = level.is_some();
     let level = level.unwrap_or(0).min(10) as usize;
-    let h = rect.height();
+    let h = if upright { rect.width() } else { rect.height() }; // the battery's thickness
     let stroke_w = (h * 0.07).clamp(1.2, 2.5);
     let radius = |f: f32| CornerRadius::same((h * f).round().clamp(1.0, 255.0) as u8);
 
     // terminal nub
     let nub_w = (h * 0.12).max(2.0);
-    let body = Rect::from_min_max(rect.min, Pos2::new(rect.right() - nub_w - stroke_w, rect.bottom()));
-    let nub = Rect::from_min_size(Pos2::new(body.right() + stroke_w * 0.6, rect.center().y - h * 0.2), vec2(nub_w, h * 0.4));
+    let (body, nub) = if upright {
+        let body = Rect::from_min_max(Pos2::new(rect.left(), rect.top() + nub_w + stroke_w), rect.max);
+        let nub = Rect::from_min_size(Pos2::new(rect.center().x - h * 0.2, rect.top()), vec2(h * 0.4, nub_w + stroke_w * 0.4));
+        (body, nub)
+    } else {
+        let body = Rect::from_min_max(rect.min, Pos2::new(rect.right() - nub_w - stroke_w, rect.bottom()));
+        let nub = Rect::from_min_size(Pos2::new(body.right() + stroke_w * 0.6, rect.center().y - h * 0.2), vec2(nub_w, h * 0.4));
+        (body, nub)
+    };
     p.rect_filled(nub, radius(0.06), BORDER);
 
     // shell
     p.rect(body, radius(0.22), BG, Stroke::new(stroke_w, BORDER), egui::StrokeKind::Inside);
 
-    // cells
+    // cells, from the empty end (left / bottom) to the full end
     let color = battery_color(level as u8, charging);
     let pad = (h * 0.14).max(2.0);
     let inner = body.shrink(pad + stroke_w * 0.5);
-    let gap = (inner.width() * 0.025).clamp(1.0, 4.0);
-    let cell_w = (inner.width() - gap * 9.0) / 10.0;
+    let long = if upright { inner.height() } else { inner.width() };
+    let gap = (long * 0.025).clamp(1.0, 4.0);
+    let cell = (long - gap * 9.0) / 10.0;
     let t = ui.input(|i| i.time) as f32;
     for i in 0..10 {
-        let cell = Rect::from_min_size(Pos2::new(inner.left() + i as f32 * (cell_w + gap), inner.top()), vec2(cell_w, inner.height()));
+        let off = i as f32 * (cell + gap);
+        let r = if upright {
+            Rect::from_min_size(Pos2::new(inner.left(), inner.bottom() - off - cell), vec2(inner.width(), cell))
+        } else {
+            Rect::from_min_size(Pos2::new(inner.left() + off, inner.top()), vec2(cell, inner.height()))
+        };
         let fill = if i < level {
             color
         } else if charging && i == level {
@@ -2741,14 +3084,14 @@ fn draw_battery(ui: &Ui, rect: Rect, level: Option<u8>, charging: bool) {
             let a = 0.25 + 0.55 * (0.5 + 0.5 * (t * 3.0).sin());
             lerp_color(PANEL2, color, a)
         } else if !known && !reduced_motion() {
-            // skeleton shimmer: a soft highlight sweeping left to right
+            // skeleton shimmer: a soft highlight sweeping along the cells
             let x = (t * 0.8).fract() * 1.6 - 0.3;
             let d = ((i as f32 + 0.5) / 10.0 - x).abs();
             lerp_color(PANEL2, BORDER, (1.0 - d * 4.0).clamp(0.0, 1.0))
         } else {
             PANEL2
         };
-        p.rect_filled(cell, radius(0.08), fill);
+        p.rect_filled(r, radius(0.08), fill);
     }
     if !known {
         p.text(body.center(), Align2::CENTER_CENTER, "?", FontId::proportional((h * 0.62).max(11.0)), MUTED);
@@ -2756,6 +3099,77 @@ fn draw_battery(ui: &Ui, rect: Rect, level: Option<u8>, charging: bool) {
     if (charging && level < 10) || (!known && !reduced_motion()) {
         ui.ctx().request_repaint_after(Duration::from_millis(33));
     }
+}
+
+/// The LED's position on the mouse photo (fractions): the centre strip, just below
+/// the two top buttons (measured on the render).
+const LED_FRAC: (f32, f32) = (0.5, 0.5193);
+
+/// The mouse LED's colour and strength right now for profile `p`'s lighting
+/// (None = lights off). An approximation of the firmware's animation.
+fn led_now(ui: &Ui, p: &Profile) -> Option<(Color32, f32)> {
+    let t = if reduced_motion() { 0.0 } else { ui.input(|i| i.time) as f32 };
+    let hue = |h: f32| -> Color32 { egui::ecolor::Hsva::new(h.rem_euclid(1.0), 1.0, 1.0, 1.0).into() };
+    let rate = 0.35 + (p.light_speed.clamp(4, 8) as f32 - 4.0) * 0.12; // relative animation speed
+    let user = rgb(p.light_color);
+    let dpi = rgb(p.dpi_colors[p.active_dpi as usize % 8]);
+    let pulse = 0.5 - 0.5 * (t * rate * std::f32::consts::TAU).cos();
+    let bright = (p.light_brightness.clamp(1, 8) as f32 / 8.0).max(0.25);
+    match p.light_mode {
+        0 => None,
+        1 => Some((user, bright)),
+        5 => Some((dpi, 1.0)),
+        2 => Some((user, pulse)),
+        4 => Some((hue(t * rate * 0.25), pulse)),
+        6 => Some((dpi, pulse)),
+        3 => Some((hue(t * rate * 0.3), 1.0)),
+        7 => Some((hue(t * rate * 0.5), 1.0)),
+        // Lightning / Marquee / mixed (from an imported profile): the X6 shows a steady colour
+        _ => Some((user, 1.0)),
+    }
+}
+
+/// Draw the LED (with a soft halo) on a mouse photo drawn in `mouse`, and keep
+/// animating while it changes.
+fn draw_led(ui: &Ui, painter: &egui::Painter, mouse: Rect, p: &Profile) {
+    let dot = Pos2::new(mouse.left() + mouse.width() * LED_FRAC.0, mouse.top() + mouse.height() * LED_FRAC.1);
+    let led_r = (mouse.width() * 0.016).max(3.0); // the real LED's size on the photo
+    let halo = mouse.width() / 180.0; // halo sized to the photo
+    match led_now(ui, p) {
+        Some((col, k)) => {
+            for (rad, alpha) in [(34.0, 0.06), (20.0, 0.12), (11.0, 0.22)] {
+                painter.circle_filled(dot, rad * halo, col.gamma_multiply(alpha * k));
+            }
+            painter.circle_filled(dot, led_r, col.gamma_multiply(0.35 + 0.65 * k));
+        }
+        None => {
+            painter.circle_filled(dot, led_r, Color32::from_gray(200));
+        }
+    }
+    let animated = !matches!(p.light_mode, 0 | 1 | 5);
+    if animated && !reduced_motion() {
+        ui.ctx().request_repaint_after(Duration::from_millis(33));
+    }
+}
+
+/// Lighting preview: the mouse photo with its LED, animated like the selected effect.
+fn draw_light_preview(ui: &Ui, rect: Rect, p: &Profile, photo: Option<&egui::TextureHandle>) {
+    let painter = ui.painter_at(rect);
+
+    // size from the column width only, and pinned to the top: the card's height follows
+    // the controls beside it (they change per effect), so neither may depend on it
+    let body_h = (rect.width() * 1.25).min(340.0);
+    let c = Pos2::new(rect.center().x, rect.top() + 12.0 + body_h / 2.0);
+    let aspect = photo_aspect(photo);
+    let mouse = Rect::from_center_size(c, vec2(body_h * aspect, body_h));
+    if let Some(tex) = photo {
+        painter.image(tex.id(), mouse, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+    } else {
+        draw_mouse(ui, mouse);
+    }
+    draw_led(ui, &painter, mouse, p);
+    let label = keys::light_mode_name(p.light_mode);
+    painter.text(Pos2::new(c.x, mouse.bottom() + 22.0), Align2::CENTER_CENTER, label, FontId::proportional(13.0), MUTED);
 }
 
 /// Simple top-down outline of the X6.

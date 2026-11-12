@@ -88,14 +88,15 @@ pub const UI_BUTTONS: [(&str, usize); 7] = [
 ];
 
 /// Lighting effects grouped for the UI: (family, [(mode index, variant label)]).
-pub const LIGHT_FAMILIES: [(&str, &[(u8, &str)]); 7] = [
+/// Lighting effects offered in the UI. Firmware modes 8 (Lightning), 9 (Static mixed
+/// colors) and 10/11 (Marquee) are left out: tested on the X6, its single LED just shows
+/// one steady colour with them.
+pub const LIGHT_FAMILIES: [(&str, &[(u8, &str)]); 5] = [
     ("Off", &[(0, "Off")]),
-    ("Static", &[(1, "One color"), (9, "Mixed colors"), (5, "Per DPI level")]),
+    ("Static", &[(1, "One color"), (5, "Per DPI level")]),
     ("Breathing", &[(2, "One color"), (4, "Color cycle"), (6, "Per DPI level")]),
     ("Neon", &[(3, "Neon")]),
     ("Rainbow wave", &[(7, "Rainbow wave")]),
-    ("Lightning", &[(8, "Lightning")]),
-    ("Marquee", &[(10, "Style 1"), (11, "Style 2")]),
 ];
 
 /// "Static · Per DPI level" style name for any mode.
@@ -208,8 +209,9 @@ pub fn egui_to_hid(k: egui::Key) -> Option<u8> {
 mod tests {
     #[test]
     fn every_lighting_mode_appears_once() {
+        // all firmware modes except the ones the X6 can't show (8, 9, 10, 11)
         let mut seen: Vec<u8> = super::LIGHT_FAMILIES.iter().flat_map(|f| f.1.iter().map(|v| v.0)).collect();
         seen.sort();
-        assert_eq!(seen, (0..=11).collect::<Vec<u8>>());
+        assert_eq!(seen, vec![0, 1, 2, 3, 4, 5, 6, 7]);
     }
 }

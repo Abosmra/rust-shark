@@ -79,7 +79,7 @@ for (x, y) in random.sample(rivets, k=min(14, len(rivets))):
 
 rivet_svg = "\n".join(
     f'<circle cx="{x:.1f}" cy="{y:.1f}" r="6.2" fill="url(#rivet)"/>'
-    f'<circle cx="{x:.1f}" cy="{y + 1.4:.1f}" r="6.2" fill="none" stroke="#2a1206" stroke-opacity=".55" stroke-width="1.2"/>'
+    f'<circle cx="{x:.1f}" cy="{y:.1f}" r="6.8" fill="none" stroke="#2a1206" stroke-opacity=".55" stroke-width="1.4"/>'
     for (x, y) in rivets
 )
 
@@ -111,7 +111,7 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{
       <stop offset="1" stop-color="#ff6a2b" stop-opacity="0"/>
     </radialGradient>
     <filter id="soft"><feGaussianBlur stdDeviation="7"/></filter>
-    <radialGradient id="rivet" cx="35%" cy="32%" r="70%">
+    <radialGradient id="rivet" cx="50%" cy="50%" r="60%">
       <stop offset="0" stop-color="#f2b07a"/>
       <stop offset=".35" stop-color="#b8612a"/>
       <stop offset="1" stop-color="#4a1d08"/>

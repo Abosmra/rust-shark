@@ -1,6 +1,6 @@
 [package]
 name = "rust-shark"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 description = "Fast native control app for the Attack Shark X6 mouse"
 license = "MIT"
@@ -13,7 +13,7 @@ hidapi = "2.6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rfd = "0.15"
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "gif"] }
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Storage_FileSystem",
@@ -21,9 +21,11 @@ windows-sys = { version = "0.59", features = [
     "Win32_Security",
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_Registry",
+    "Win32_Graphics_Gdi",
 ] }
 tray-icon = "0.26.1"
 raw-window-handle = "0.6"
+ureq = { version = "2", features = ["json"] }
 
 [profile.release]
 opt-level = 3

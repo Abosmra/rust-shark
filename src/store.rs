@@ -27,6 +27,22 @@ pub struct Config {
     /// When started with Windows, stay in the system tray instead of opening the window.
     #[serde(default)]
     pub start_minimized: bool,
+    /// Show the black X6 in pictures (Home, Buttons, Lighting) instead of the white one.
+    #[serde(default)]
+    pub black_mouse: bool,
+    /// Last window position and size (logical points), so it reopens where you left it.
+    #[serde(default)]
+    pub window: Option<[f32; 4]>,
+    /// Look for a newer release on GitHub at startup.
+    #[serde(default = "yes")]
+    pub check_updates: bool,
+}
+
+/// Saved window rect `[x, y, w, h]`, read without loading the whole config.
+pub fn saved_window() -> Option<[f32; 4]> {
+    let s = std::fs::read_to_string(config_path()).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&s).ok()?;
+    serde_json::from_value(v.get("window")?.clone()).ok()
 }
 
 /// `start_minimized` without loading (and possibly importing/migrating) the whole config.
@@ -141,12 +157,12 @@ impl Config {
         }
         if recovered {
             let profiles = import_official().unwrap_or_else(|| vec![Profile::default()]);
-            return (Config { profiles, active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false }, "recovered");
+            return (Config { profiles, active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false, window: None, black_mouse: false, check_updates: true }, "recovered");
         }
         if let Some(profiles) = import_official() {
-            return (Config { profiles, active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false }, "imported");
+            return (Config { profiles, active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false, window: None, black_mouse: false, check_updates: true }, "imported");
         }
-        (Config { profiles: vec![Profile::default()], active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false }, "default")
+        (Config { profiles: vec![Profile::default()], active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false, window: None, black_mouse: false, check_updates: true }, "default")
     }
 
     pub fn save(&self) {

@@ -149,6 +149,7 @@ capture from the official app is the most useful thing you can share.
   for documenting the shared protocol: status events, the read handshake, profiles and the
   `0x10` warning all came from there.
 - Keyboard and mouse input icons by [amanz](https://amanz.itch.io/keyboard-mouse-icon-pack-free) (CC0).
+- Animated settings icon by [Icons8](https://icons8.com).
 - Built with [egui](https://github.com/emilk/egui) and [hidapi](https://github.com/ruabmbua/hidapi-rs).
 
 ## License
