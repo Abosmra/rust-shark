@@ -37,8 +37,9 @@ service, and it starts instantly.
 
 ### Known limits
 
-- **Battery** is reported by the mouse firmware in 10% steps. On some units the firmware
-  always reports 100%; no app can fix that.
+- **Battery** is reported by the mouse firmware in 10% steps. On some units (seen on an X6
+  with device ID `0x10`) it reports 100% whenever the mouse runs on battery, and only gives a
+  real level while charging; no app can fix that.
 - **Lift-off distance** (0.7 / 1 / 2 mm) is written to the firmware's own lift-off field, but a
   paper-stack test showed no change in tracking cutoff on the X6. The official app's switch
   never reaches the mouse at all. [Details](docs/lift-off-distance.md).

@@ -9,7 +9,7 @@ use crate::protocol::{self, StatusMsg};
 use std::ffi::CStr;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
-use windows_sys::Win32::Devices::HumanInterfaceDevice::{HidD_GetFeature, HidD_SetFeature};
+use windows_sys::Win32::Devices::HumanInterfaceDevice::HidD_SetFeature;
 use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
 
@@ -31,17 +31,12 @@ pub struct Status {
     pub awaiting_wake: bool,
     /// Jobs in a row that got no reply; resends stop after a few (e.g. a mode that never replies).
     pub no_reply_streak: u32,
-    /// Result of the last `Step::Verify`: report ids whose contents on the mouse differ
-    /// from the packets the app would send. Taken by the UI.
-    pub mismatch: Option<Vec<u8>>,
 }
 
 pub enum Step {
     Packet(Vec<u8>),
     Macro(Vec<Vec<u8>>),
     Pause(u64),
-    /// Read each report back from the mouse and compare it with this packet.
-    Verify(Vec<Vec<u8>>),
 }
 
 pub struct Device {
@@ -96,10 +91,6 @@ impl Device {
         r
     }
 
-    pub fn take_mismatch(&self) -> Option<Vec<u8>> {
-        self.status.lock().unwrap().mismatch.take()
-    }
-
     pub fn take_dpi_event(&self) -> Option<u8> {
         self.status.lock().unwrap().dpi_event.take()
     }
@@ -131,26 +122,6 @@ impl Feature {
 
     fn set(&self, data: &[u8]) -> bool {
         unsafe { HidD_SetFeature(self.0, data.as_ptr() as _, data.len() as u32) != 0 }
-    }
-
-    fn get(&self, report: u8, len: usize) -> Option<Vec<u8>> {
-        let mut buf = vec![0u8; len];
-        buf[0] = report;
-        let ok = unsafe { HidD_GetFeature(self.0, buf.as_mut_ptr() as _, len as u32) != 0 };
-        ok.then_some(buf)
-    }
-
-    /// Read a settings report back. The firmware needs a one-time permission per
-    /// read (report 0xA0: target report, its length, profile); a plain read times out.
-    /// The reply has the write layout, with a length byte 2 higher.
-    fn read(&self, report: u8, len: usize) -> Option<Vec<u8>> {
-        assert!(report != 0x10, "report 0x10 reboots the mouse into its bootloader");
-        if !self.set(&[0xA0, report, len as u8, 0, 1, 0, 0, 0]) {
-            return None;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-        self.get(0xA0, 8)?;
-        self.get(report, len)
     }
 }
 
@@ -321,26 +292,6 @@ fn worker(rx: mpsc::Receiver<Vec<Step>>, st: Arc<Mutex<Status>>, ctx: egui::Cont
                             Step::Packet(p) => c.send_acked(p, &st, &ctx),
                             Step::Macro(chunks) => c.send_macro(chunks, &st, &ctx),
                             Step::Pause(ms) => if c.pump(*ms, &st, &ctx) { Sent::Confirmed } else { Sent::Lost },
-                            Step::Verify(expected) => {
-                                let mut differs = Vec::new();
-                                let mut complete = true;
-                                for p in expected {
-                                    match c.feature.read(p[0], p.len()) {
-                                        // skip byte 1 (length) and trailing padding
-                                        Some(r) => {
-                                            if r[2..] != p[2..] {
-                                                differs.push(p[0]);
-                                            }
-                                        }
-                                        None => complete = false,
-                                    }
-                                }
-                                // a read that failed (mouse asleep) proves nothing: report only complete checks
-                                if complete {
-                                    st.lock().unwrap().mismatch = Some(differs);
-                                }
-                                Sent::Confirmed
-                            }
                         };
                         if r == Sent::Lost {
                             result = Sent::Lost;

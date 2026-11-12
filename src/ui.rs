@@ -53,10 +53,6 @@ enum Dirty {
     Macros,
 }
 
-/// Read the mouse back on connect and compare. Off: on the X6 receiver these reads
-/// froze the mouse for about a minute right after launch (2026-11-12).
-const VERIFY_ON_CONNECT: bool = false;
-
 #[derive(Clone, Copy)]
 enum Confirm {
     Wipe,
@@ -86,10 +82,6 @@ pub struct App {
     capture_key: Option<egui::Modifiers>,
     confirm: Option<Confirm>,
     told_no_reply: bool,
-    /// The mouse was compared with the app since it connected.
-    verified: bool,
-    /// Reports (04/05/06/08) where the mouse differs from the app.
-    mouse_differs: Option<Vec<u8>>,
     editing_event: bool,
     macro_search: String,
     mouse_tex: Option<egui::TextureHandle>,
@@ -154,7 +146,6 @@ fn load_logo_texture(ctx: &egui::Context) -> egui::TextureHandle {
     ctx.load_texture("logo", color, egui::TextureOptions::LINEAR)
 }
 
-/// The X6 mouse render (250x400, numbered badges baked in), bundled in the exe.
 /// The X6 photo (white or black) without button numbers or LED; cut out from the
 /// product shots. Pages draw their own number badges and LED on top.
 fn load_mouse_texture(ctx: &egui::Context, black: bool) -> Option<egui::TextureHandle> {
@@ -203,7 +194,7 @@ fn draw_badge_on(ui: &Ui, c: Pos2, r: f32, n: usize, selected: bool, light: bool
     p.galley(c - ink_rect.center().to_vec2(), galley, ink);
 }
 
-/// Width / height of the mouse photo (or the drawn outline's proportions).
+/// Width / height of the mouse photo.
 fn photo_aspect(tex: Option<&egui::TextureHandle>) -> f32 {
     tex.map(|t| t.size_vec2().x / t.size_vec2().y).unwrap_or(250.0 / 400.0)
 }
@@ -263,8 +254,6 @@ impl App {
             capture_key: None,
             confirm: None,
             told_no_reply: false,
-            verified: false,
-            mouse_differs: None,
             editing_event: false,
             macro_search: String::new(),
             mouse_tex: None, // set below, from the config's mouse colour
@@ -749,22 +738,6 @@ impl eframe::App for App {
             self.toast("The mouse isn't confirming changes. They were sent, but may not have applied.");
         }
         self.told_no_reply = gave_up;
-        // once per connection, when the mouse is awake: does it hold what the app would send?
-        if !status.connected {
-            self.verified = false;
-        } else if VERIFY_ON_CONNECT && !self.verified && status.battery.is_some() && status.pending_jobs == 0 && self.dirty.is_empty() {
-            let p = self.cfg.profile();
-            self.dev.send(vec![Step::Verify(vec![
-                protocol::pkt_dpi(p),
-                protocol::pkt_light_power(p),
-                protocol::pkt_polling(p),
-                protocol::pkt_buttons(p),
-            ])]);
-            self.verified = true;
-        }
-        if let Some(m) = self.dev.take_mismatch() {
-            self.mouse_differs = (!m.is_empty()).then_some(m);
-        }
         if status.pending_jobs > 0 {
             ctx.request_repaint_after(Duration::from_millis(200));
         }
@@ -884,69 +857,6 @@ impl eframe::App for App {
             } else if reset && pending {
                 self.discard_pending();
                 self.toast("Changes discarded");
-            }
-        }
-
-        // The mouse holds different settings than the app (found by the startup check).
-        if let Some(ids) = self.mouse_differs.clone() {
-            let names: Vec<&str> = ids
-                .iter()
-                .map(|r| match r {
-                    0x04 => "DPI & sensor",
-                    0x05 => "lighting & power",
-                    0x06 => "polling rate",
-                    _ => "buttons",
-                })
-                .collect();
-            let (mut send, mut ignore) = (false, false);
-            let lift = if pending { -96.0 } else { -20.0 };
-            egui::Area::new("differs".into())
-                .anchor(Align2::CENTER_BOTTOM, vec2(BAR_X, lift))
-                .order(egui::Order::Foreground)
-                .show(ctx, |ui| {
-                    egui::Frame::new()
-                        .fill(PANEL)
-                        .stroke(Stroke::new(1.0_f32, WARN.gamma_multiply(0.6)))
-                        .corner_radius(CornerRadius::same(14))
-                        .inner_margin(Margin::same(12))
-                        .show(ui, |ui| {
-                            ui.set_width(660.0);
-                            ui.horizontal(|ui| {
-                                ui.vertical(|ui| {
-                                    ui.spacing_mut().item_spacing.y = 0.0;
-                                    ui.label(RichText::new("Your mouse has different settings").size(15.0).strong());
-                                    ui.label(RichText::new(format!("Not what Rust Shark shows: {}", names.join(", "))).size(12.0).color(MUTED));
-                                });
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    let b = egui::Button::new(RichText::new("Send Rust Shark's").color(Color32::WHITE).strong())
-                                        .fill(ACCENT)
-                                        .corner_radius(CornerRadius::same(10))
-                                        .min_size(vec2(150.0, 38.0));
-                                    send = ui.add(b).on_hover_text("Overwrite these settings on the mouse with the ones shown here").clicked();
-                                    let k = egui::Button::new(RichText::new("Ignore").color(TEXT))
-                                        .fill(PANEL2)
-                                        .corner_radius(CornerRadius::same(10))
-                                        .min_size(vec2(96.0, 38.0));
-                                    ignore = ui.add(k).on_hover_text("Leave the mouse as it is").clicked();
-                                });
-                            });
-                        });
-                });
-            if send {
-                for r in &ids {
-                    self.mark(match r {
-                        0x04 => Dirty::Dpi,
-                        0x05 => Dirty::LightPower,
-                        0x06 => Dirty::Polling,
-                        _ => Dirty::Buttons,
-                    });
-                }
-                self.send_pending();
-                self.mouse_differs = None;
-                self.verified = false; // check again once it's sent
-                self.toast("Sent to the mouse");
-            } else if ignore {
-                self.mouse_differs = None;
             }
         }
 
