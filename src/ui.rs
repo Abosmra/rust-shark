@@ -1170,6 +1170,11 @@ impl App {
             });
             ui.separator();
             setting_row(ui, "Automatic backups", &format!("Made at startup and before anything is deleted, reset, imported or restored. The last {} are kept.", store::KEEP_BACKUPS), |ui| {
+                let mut on = self.cfg.auto_backup;
+                if toggle(ui, &mut on).changed() {
+                    self.cfg.auto_backup = on;
+                    self.cfg.save();
+                }
                 if ui.button("Open folder").clicked() {
                     let _ = std::process::Command::new("explorer").arg(store::backups_dir()).spawn();
                 }
@@ -1200,9 +1205,10 @@ impl App {
         if let Some(c) = &self.restore {
             let n = |k: usize| format!("{k} profile{}", if k == 1 { "" } else { "s" });
             let body = format!(
-                "Everything here ({}) is replaced by the backup ({}). What's here now is backed up first.",
+                "Everything here ({}) is replaced by the backup ({}).{}",
                 n(self.cfg.profiles.len()),
-                n(c.profiles.len())
+                n(c.profiles.len()),
+                if self.cfg.auto_backup { " What's here now is backed up first." } else { " Automatic backups are off, so this can't be undone." }
             );
             if let Some(yes) = confirm_modal(ui.ctx(), "Restore this backup?", &body, "Restore") {
                 let c = self.restore.take().filter(|_| yes);

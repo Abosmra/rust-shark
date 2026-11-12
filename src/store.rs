@@ -36,6 +36,9 @@ pub struct Config {
     /// Look for a newer release on GitHub at startup.
     #[serde(default = "yes")]
     pub check_updates: bool,
+    /// Keep automatic backups (startup and before deletes/resets/imports/restores).
+    #[serde(default = "yes")]
+    pub auto_backup: bool,
 }
 
 /// Saved window rect `[x, y, w, h]`, read without loading the whole config.
@@ -157,12 +160,12 @@ impl Config {
         }
         if recovered {
             let profiles = import_official().unwrap_or_else(|| vec![Profile::default()]);
-            return (Config { profiles, active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false, window: None, black_mouse: false, check_updates: true }, "recovered");
+            return (Config { profiles, active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false, window: None, black_mouse: false, check_updates: true, auto_backup: true }, "recovered");
         }
         if let Some(profiles) = import_official() {
-            return (Config { profiles, active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false, window: None, black_mouse: false, check_updates: true }, "imported");
+            return (Config { profiles, active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false, window: None, black_mouse: false, check_updates: true, auto_backup: true }, "imported");
         }
-        (Config { profiles: vec![Profile::default()], active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false, window: None, black_mouse: false, check_updates: true }, "default")
+        (Config { profiles: vec![Profile::default()], active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false, window: None, black_mouse: false, check_updates: true, auto_backup: true }, "default")
     }
 
     pub fn save(&self) {
@@ -181,6 +184,9 @@ impl Config {
     /// Copy of these settings in `backups\`, named `<unix secs>-<why>.json`; the oldest
     /// beyond `KEEP_BACKUPS` are deleted. Skipped when identical to the newest one.
     pub fn snapshot(&self, why: &str) {
+        if !self.auto_backup {
+            return;
+        }
         // without the window position: moving the window isn't a change worth a backup
         let Ok(json) = serde_json::to_string_pretty(&Config { window: None, ..self.clone() }) else { return };
         let dir = backups_dir();
