@@ -181,7 +181,8 @@ impl Config {
     /// Copy of these settings in `backups\`, named `<unix secs>-<why>.json`; the oldest
     /// beyond `KEEP_BACKUPS` are deleted. Skipped when identical to the newest one.
     pub fn snapshot(&self, why: &str) {
-        let Ok(json) = serde_json::to_string_pretty(self) else { return };
+        // without the window position: moving the window isn't a change worth a backup
+        let Ok(json) = serde_json::to_string_pretty(&Config { window: None, ..self.clone() }) else { return };
         let dir = backups_dir();
         let list = list_backups();
         if list.first().and_then(|b| std::fs::read_to_string(&b.path).ok()).as_deref() == Some(json.as_str()) {

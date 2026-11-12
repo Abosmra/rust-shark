@@ -91,6 +91,8 @@ pub struct App {
     profile_confirm: Option<ProfileConfirm>,
     /// A backup picked to restore, waiting for the confirm dialog.
     restore: Option<Box<Config>>,
+    /// Automatic backups as last listed, and when (the folder is re-read at most once a second).
+    backups: (Instant, Vec<store::Backup>),
     told_no_reply: bool,
     editing_event: bool,
     macro_search: String,
@@ -323,6 +325,7 @@ impl App {
             confirm: None,
             profile_confirm: None,
             restore: None,
+            backups: (Instant::now() - Duration::from_secs(5), Vec::new()),
             told_no_reply: false,
             editing_event: false,
             macro_search: String::new(),
@@ -1172,19 +1175,26 @@ impl App {
                 }
             });
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-            for b in store::list_backups().into_iter().take(5) {
+            if self.backups.0.elapsed() > Duration::from_secs(1) {
+                self.backups = (Instant::now(), store::list_backups());
+            }
+            let mut pick = None;
+            for b in self.backups.1.iter().take(5) {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(ago(now.saturating_sub(b.at))).size(13.0));
                     ui.label(RichText::new(b.why.replace('-', " ")).size(12.0).color(MUTED));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if ui.button("Restore").clicked() {
-                            match Config::from_file(&b.path) {
-                                Some(c) => self.restore = Some(Box::new(c)),
-                                None => self.toast("That backup can't be read"),
-                            }
+                            pick = Some(b.path.clone());
                         }
                     });
                 });
+            }
+            if let Some(path) = pick {
+                match Config::from_file(&path) {
+                    Some(c) => self.restore = Some(Box::new(c)),
+                    None => self.toast("That backup can't be read"),
+                }
             }
         });
         if let Some(c) = &self.restore {
@@ -2868,14 +2878,18 @@ impl App {
                         ProfileConfirm::Reset => "reset-profile",
                     });
                     match what {
+                        // never remove the last profile (the button is disabled then anyway)
                         ProfileConfirm::Delete if self.cfg.profiles.len() > 1 => {
                             self.cfg.profiles.remove(self.cfg.active);
                             self.cfg.active = 0;
+                            self.mark(Dirty::Full);
                         }
                         ProfileConfirm::Delete => {}
-                        ProfileConfirm::Reset => *self.p() = Profile { name, ..Profile::default() },
+                        ProfileConfirm::Reset => {
+                            *self.p() = Profile { name, ..Profile::default() };
+                            self.mark(Dirty::Full);
+                        }
                     }
-                    self.mark(Dirty::Full);
                 }
                 self.profile_confirm = None;
             }

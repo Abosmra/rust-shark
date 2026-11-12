@@ -171,6 +171,8 @@ mod recovery_tests {
         let (mut cfg, _) = crate::store::Config::load();
         cfg.snapshot("one");
         cfg.snapshot("same"); // identical: skipped
+        cfg.window = Some([1.0, 2.0, 3.0, 4.0]);
+        cfg.snapshot("moved"); // only the window moved: skipped
         let list = crate::store::list_backups();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].why, "one");
