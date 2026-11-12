@@ -1176,7 +1176,10 @@ impl App {
                     self.cfg.save();
                 }
                 if ui.button("Open folder").clicked() {
-                    let _ = std::process::Command::new("explorer").arg(store::backups_dir()).spawn();
+                    // it only exists once a backup has been made
+                    let dir = store::backups_dir();
+                    let _ = std::fs::create_dir_all(&dir);
+                    let _ = std::process::Command::new("explorer").arg(dir).spawn();
                 }
             });
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
