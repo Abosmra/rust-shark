@@ -7,7 +7,8 @@
 
 use crate::protocol::{self, StatusMsg};
 use std::ffi::CStr;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use windows_sys::Win32::Devices::HumanInterfaceDevice::HidD_SetFeature;
 use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
@@ -17,7 +18,7 @@ use windows_sys::Win32::Storage::FileSystem::{CreateFileW, FILE_SHARE_READ, FILE
 pub struct Status {
     pub connected: bool,
     pub wired: bool,
-    /// (state, level 0..=10)
+    /// (state, level 1..=10)
     pub battery: Option<(u8, u8)>,
     /// DPI level the mouse switched to on its own; taken by the UI.
     pub dpi_event: Option<u8>,
@@ -37,17 +38,42 @@ pub enum Step {
     Packet(Vec<u8>),
     Macro(Vec<Vec<u8>>),
     Pause(u64),
+    /// Flush queued steps, close USB handles, and terminate the worker thread.
+    Shutdown,
 }
 
+/// Build the full sequence of packets to write a complete profile to the mouse.
+pub fn full_profile_steps(p: &protocol::Profile) -> Vec<Step> {
+    let mut steps = vec![
+        Step::Packet(protocol::pkt_begin()),
+        Step::Pause(500),
+        Step::Packet(protocol::pkt_dpi(p)),
+        Step::Packet(protocol::pkt_light_power(p)),
+        Step::Packet(protocol::pkt_polling(p)),
+        Step::Packet(protocol::pkt_buttons(p)),
+    ];
+    for (_, chunks) in protocol::all_macro_uploads(p) {
+        steps.push(Step::Macro(chunks));
+    }
+    steps
+}
+
+fn lock_status(st: &Mutex<Status>) -> MutexGuard<'_, Status> {
+    st.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+#[derive(Clone)]
 pub struct Device {
     tx: mpsc::Sender<Vec<Step>>,
     pub status: Arc<Mutex<Status>>,
+    finished: Arc<AtomicBool>,
 }
 
 impl Device {
     pub fn start(ctx: egui::Context) -> Self {
         let (tx, rx) = mpsc::channel();
         let status = Arc::new(Mutex::new(Status::default()));
+        let finished = Arc::new(AtomicBool::new(false));
         // Test hook: SHARK_OFFLINE never touches USB; SHARK_FAKE_BATTERY="state,level"
         // pretends a mouse is connected with that battery report.
         if std::env::var_os("SHARK_OFFLINE").is_some() {
@@ -55,35 +81,37 @@ impl Device {
                 let (a, b) = v.split_once(',')?;
                 Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
             }) {
-                let mut s = status.lock().unwrap();
+                let mut s = lock_status(&status);
                 s.connected = true;
                 s.battery = Some((a, b));
             }
-            return Device { tx, status };
+            finished.store(true, Ordering::SeqCst);
+            return Device { tx, status, finished };
         }
         let st = status.clone();
+        let fin = finished.clone();
         std::thread::Builder::new()
             .name("shark-usb".into())
-            .spawn(move || worker(rx, st, ctx))
+            .spawn(move || worker(rx, st, ctx, fin))
             .expect("spawn usb thread");
-        Device { tx, status }
+        Device { tx, status, finished }
     }
 
     pub fn send(&self, steps: Vec<Step>) {
         if steps.is_empty() {
             return;
         }
-        self.status.lock().unwrap().pending_jobs += 1;
+        lock_status(&self.status).pending_jobs += 1;
         let _ = self.tx.send(steps);
     }
 
     pub fn snapshot(&self) -> Status {
-        self.status.lock().unwrap().clone()
+        lock_status(&self.status).clone()
     }
 
     /// True once after a failed write, when the receiver is connected again.
     pub fn take_resync(&self) -> bool {
-        let mut s = self.status.lock().unwrap();
+        let mut s = lock_status(&self.status);
         let r = s.resync_needed && s.connected && s.pending_jobs == 0 && !s.awaiting_wake && s.no_reply_streak <= 2;
         if r {
             s.resync_needed = false;
@@ -92,7 +120,19 @@ impl Device {
     }
 
     pub fn take_dpi_event(&self) -> Option<u8> {
-        self.status.lock().unwrap().dpi_event.take()
+        lock_status(&self.status).dpi_event.take()
+    }
+
+    /// Ask the worker thread to finish queued writes, close USB handles, and exit.
+    pub fn shutdown(&self) {
+        if self.finished.load(Ordering::SeqCst) {
+            return;
+        }
+        let _ = self.tx.send(vec![Step::Shutdown]);
+        let start = Instant::now();
+        while !self.finished.load(Ordering::SeqCst) && start.elapsed() < Duration::from_millis(1500) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 }
 
@@ -121,7 +161,10 @@ impl Feature {
     }
 
     fn set(&self, data: &[u8]) -> bool {
-        assert!(data.first() != Some(&0x10), "report 0x10 reboots the mouse into its bootloader");
+        // Report 0x10 reboots the mouse into its bootloader (firmware-update mode).
+        if data.first() == Some(&0x10) {
+            return false;
+        }
         unsafe { HidD_SetFeature(self.0, data.as_ptr() as _, data.len() as u32) != 0 }
     }
 }
@@ -182,7 +225,7 @@ impl Conn {
             match self.status_dev.read_timeout(&mut buf, left.clamp(1, 50)) {
                 Ok(n) if n > 0 => {
                     if let Some(msg) = protocol::parse_status(&buf[..n]) {
-                        let mut s = st.lock().unwrap();
+                        let mut s = lock_status(st);
                         match msg {
                             StatusMsg::Battery { state, level } => {
                                 // battery reports only flow while the mouse is awake
@@ -263,7 +306,15 @@ impl Conn {
     }
 }
 
-fn worker(rx: mpsc::Receiver<Vec<Step>>, st: Arc<Mutex<Status>>, ctx: egui::Context) {
+struct FinishGuard(Arc<AtomicBool>);
+impl Drop for FinishGuard {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+fn worker(rx: mpsc::Receiver<Vec<Step>>, st: Arc<Mutex<Status>>, ctx: egui::Context, finished: Arc<AtomicBool>) {
+    let _guard = FinishGuard(finished);
     let mut api = match hidapi::HidApi::new() {
         Ok(a) => a,
         Err(_) => return,
@@ -275,7 +326,7 @@ fn worker(rx: mpsc::Receiver<Vec<Step>>, st: Arc<Mutex<Status>>, ctx: egui::Cont
         if conn.is_none() && last_try.elapsed() > Duration::from_secs(2) {
             last_try = Instant::now();
             conn = connect(&mut api);
-            let mut s = st.lock().unwrap();
+            let mut s = lock_status(&st);
             s.connected = conn.is_some();
             s.wired = conn.as_ref().map(|c| c.wired).unwrap_or(false);
             if conn.is_none() {
@@ -287,12 +338,17 @@ fn worker(rx: mpsc::Receiver<Vec<Step>>, st: Arc<Mutex<Status>>, ctx: egui::Cont
         match rx.try_recv() {
             Ok(steps) => {
                 let mut result = Sent::Confirmed;
+                let mut shutdown = false;
                 if let Some(c) = conn.as_mut() {
                     for step in steps {
                         let r = match &step {
                             Step::Packet(p) => c.send_acked(p, &st, &ctx),
                             Step::Macro(chunks) => c.send_macro(chunks, &st, &ctx),
                             Step::Pause(ms) => if c.pump(*ms, &st, &ctx) { Sent::Confirmed } else { Sent::Lost },
+                            Step::Shutdown => {
+                                shutdown = true;
+                                break;
+                            }
                         };
                         if r == Sent::Lost {
                             result = Sent::Lost;
@@ -303,13 +359,21 @@ fn worker(rx: mpsc::Receiver<Vec<Step>>, st: Arc<Mutex<Status>>, ctx: egui::Cont
                         }
                     }
                 } else {
-                    result = Sent::Lost;
+                    shutdown = steps.iter().any(|s| matches!(s, Step::Shutdown));
+                    if !shutdown {
+                        result = Sent::Lost;
+                    }
+                }
+                if shutdown {
+                    let mut s = lock_status(&st);
+                    s.pending_jobs = s.pending_jobs.saturating_sub(1);
+                    return;
                 }
                 let lost = result == Sent::Lost;
                 if lost {
                     conn = None;
                 }
-                let mut s = st.lock().unwrap();
+                let mut s = lock_status(&st);
                 s.pending_jobs = s.pending_jobs.saturating_sub(1);
                 s.last_write_failed = result != Sent::Confirmed;
                 s.resync_needed |= result != Sent::Confirmed;
@@ -330,7 +394,7 @@ fn worker(rx: mpsc::Receiver<Vec<Step>>, st: Arc<Mutex<Status>>, ctx: egui::Cont
             Some(c) => {
                 if !c.pump(100, &st, &ctx) {
                     conn = None;
-                    let mut s = st.lock().unwrap();
+                    let mut s = lock_status(&st);
                     s.connected = false;
                     s.battery = None;
                     ctx.request_repaint();
