@@ -1,7 +1,9 @@
-use crate::device::{Device, Step};
+use crate::device::{self, Device, Step};
+use crate::i18n::Lang;
 use crate::keys;
 use crate::protocol::{self, Binding, Macro, MacroEvent, Profile};
 use crate::store::{self, Config};
+use crate::tray::TrayCmd;
 use egui::{
     vec2, Align, Align2, Color32, CornerRadius, FontId, Layout, Margin, Pos2, Rect, RichText, Sense, Stroke, Ui,
 };
@@ -104,8 +106,11 @@ pub struct App {
     gear_hover: Option<f64>,
     /// A newer GitHub release, once the startup check finds one.
     update: Option<crate::update::Found>,
-    /// System tray icon (kept alive for the app's lifetime).
-    tray: Option<tray_icon::TrayIcon>,
+    /// System tray state (kept alive for the app's lifetime).
+    tray: Option<crate::tray::TrayState>,
+    last_tray_tooltip: String,
+    tray_menu_key: (Vec<String>, usize, Lang),
+    low_battery_warned: bool,
     /// "Start with Windows" (the Run registry value is the source of truth).
     autostart: bool,
     /// Window rect seen last frame and when it last changed (saved once it settles).
@@ -308,6 +313,15 @@ impl App {
         cc.egui_ctx.options_mut(|o| o.max_passes = std::num::NonZeroUsize::new(4).unwrap());
         let (cfg, how) = Config::load();
         let dev = Device::start(cc.egui_ctx.clone());
+        let tray = {
+            crate::tray::set_window(cc);
+            crate::tray::create(cc.egui_ctx.clone(), dev.clone(), &cfg.profiles, cfg.active, cfg.language)
+        };
+        let tray_menu_key = (
+            cfg.profiles.iter().map(|p| p.name.clone()).collect(),
+            cfg.active,
+            cfg.language,
+        );
         let mut app = App {
             cfg,
             dev,
@@ -334,10 +348,10 @@ impl App {
             gear: load_gear(&cc.egui_ctx),
             gear_hover: None,
             update: None, // started below if the setting is on
-            tray: {
-                crate::tray::set_window(cc);
-                crate::tray::create(cc.egui_ctx.clone())
-            },
+            tray,
+            last_tray_tooltip: String::new(),
+            tray_menu_key,
+            low_battery_warned: false,
             autostart: crate::tray::autostart_enabled() && crate::tray::set_autostart(true), // refresh the path in case the exe moved
             window_seen: None,
             window_moved: Instant::now(),
@@ -369,6 +383,26 @@ impl App {
             app.toast("Imported your macro library from the official app");
         }
         app
+    }
+
+    fn t(&self, en: &'static str) -> &'static str {
+        crate::i18n::t(self.cfg.language, en)
+    }
+
+    fn switch_profile(&mut self, idx: usize, send_to_mouse: bool) {
+        if idx >= self.cfg.profiles.len() || idx == self.cfg.active {
+            return;
+        }
+        self.cfg.active = idx;
+        if send_to_mouse {
+            self.mark(Dirty::Full);
+            if self.cfg.auto_save {
+                self.toast(format!("Applying “{}” to the mouse…", self.cfg.profile().name));
+            }
+        } else {
+            self.applied = (self.cfg.profiles.clone(), idx);
+            self.cfg.save();
+        }
     }
 
     /// Icon for a key/mouse code: outlined normally, filled when `active` (hovered/selected).
@@ -415,18 +449,10 @@ impl App {
             return;
         }
         let p = self.cfg.profile().clone();
-        let mut steps = Vec::new();
-        if self.dirty.contains(&Dirty::Full) {
-            steps.push(Step::Packet(protocol::pkt_begin()));
-            steps.push(Step::Pause(500));
-            steps.push(Step::Packet(protocol::pkt_dpi(&p)));
-            steps.push(Step::Packet(protocol::pkt_light_power(&p)));
-            steps.push(Step::Packet(protocol::pkt_polling(&p)));
-            steps.push(Step::Packet(protocol::pkt_buttons(&p)));
-            for (_, chunks) in protocol::all_macro_uploads(&p) {
-                steps.push(Step::Macro(chunks));
-            }
+        let steps = if self.dirty.contains(&Dirty::Full) {
+            device::full_profile_steps(&p)
         } else {
+            let mut steps = Vec::new();
             for d in &self.dirty {
                 match d {
                     Dirty::Dpi => steps.push(Step::Packet(protocol::pkt_dpi(&p))),
@@ -441,7 +467,8 @@ impl App {
                     Dirty::Full => {}
                 }
             }
-        }
+            steps
+        };
         self.dirty.clear();
         self.dev.send(steps);
         self.cfg.save();
@@ -761,6 +788,23 @@ fn shortcut_label(mods: u8, key: u8) -> String {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let mut tray_cmds = Vec::new();
+        if let Some(tray) = &self.tray {
+            while let Ok(cmd) = tray.rx.try_recv() {
+                tray_cmds.push(cmd);
+            }
+        }
+        for cmd in tray_cmds {
+            match cmd {
+                TrayCmd::SwitchProfile { idx, already_sent } => {
+                    self.switch_profile(idx, !already_sent);
+                }
+                TrayCmd::Quit => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+        }
+
         // remember where the window is, saved once it has stopped moving for a second
         let (outer, inner, minimized) = ctx.input(|i| (i.viewport().outer_rect, i.viewport().inner_rect, i.viewport().minimized));
         if let (Some(o), Some(n), false) = (outer, inner, minimized.unwrap_or(false)) {
@@ -777,7 +821,11 @@ impl eframe::App for App {
             }
         }
         // closing the window keeps Rust Shark in the system tray (tray menu > Quit exits)
-        if self.cfg.close_to_tray && self.tray.is_some() && ctx.input(|i| i.viewport().close_requested()) {
+        if self.cfg.close_to_tray
+            && self.tray.is_some()
+            && !crate::tray::is_force_quit()
+            && ctx.input(|i| i.viewport().close_requested())
+        {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             crate::tray::hide();
         }
@@ -806,6 +854,36 @@ impl eframe::App for App {
             self.toast("The mouse missed a change: re-sending your settings");
         }
         let status = self.dev.snapshot();
+        if self.cfg.low_battery_alert {
+            match status.battery {
+                Some((1, lvl)) if lvl <= 2 => {
+                    if !self.low_battery_warned {
+                        self.low_battery_warned = true;
+                        self.toast(self.t("Low battery (≤20%) — connect your mouse to charge"));
+                    }
+                }
+                Some((state, lvl)) if state == 2 || state == 3 || lvl >= 4 => {
+                    self.low_battery_warned = false;
+                }
+                _ => {}
+            }
+        }
+        if let Some(tray) = &self.tray {
+            let tip = crate::tray::format_tooltip(&status, &self.cfg.profile().name, self.cfg.language);
+            if tip != self.last_tray_tooltip {
+                tray.set_tooltip(&tip);
+                self.last_tray_tooltip = tip;
+            }
+            let key = (
+                self.cfg.profiles.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
+                self.cfg.active,
+                self.cfg.language,
+            );
+            if key != self.tray_menu_key {
+                tray.sync_menu(&self.cfg.profiles, self.cfg.active, self.cfg.language);
+                self.tray_menu_key = key;
+            }
+        }
         // tell once when retries have stopped
         let gave_up = status.no_reply_streak > 2;
         if gave_up && !self.told_no_reply {
@@ -969,6 +1047,7 @@ impl eframe::App for App {
         if !self.cfg.auto_save && !self.dirty.is_empty() {
             self.discard_pending();
         }
+        self.dev.shutdown();
     }
 }
 
@@ -1000,10 +1079,30 @@ impl App {
                     ui.painter().circle_filled(r.center(), 5.0, dot);
                     ui.label(text);
                 });
+                let mut switch_to = None;
+                let profile_lbl = self.t("Profile").to_string();
+                let active_name = self.cfg.profile().name.clone();
+                let profiles_snap: Vec<(usize, String, bool)> = self
+                    .cfg
+                    .profiles
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| (i, p.name.clone(), i == self.cfg.active))
+                    .collect();
                 chip(ui, |ui| {
-                    ui.label(RichText::new("Profile").color(MUTED));
-                    ui.label(RichText::new(&self.cfg.profile().name).strong());
+                    ui.label(RichText::new(&profile_lbl).color(MUTED));
+                    ui.menu_button(RichText::new(format!("{active_name} ▾")).strong(), |ui| {
+                        for (i, name, active) in &profiles_snap {
+                            if ui.selectable_label(*active, name).clicked() {
+                                switch_to = Some(*i);
+                                ui.close_menu();
+                            }
+                        }
+                    });
                 });
+                if let Some(i) = switch_to {
+                    self.switch_profile(i, true);
+                }
             });
         });
     }
@@ -1012,20 +1111,24 @@ impl App {
         ui.add_space(6.0);
         for (page, label) in PAGES {
             if page != Page::Settings {
-                self.nav_item(ui, page, label);
+                self.nav_item(ui, page, self.t(label));
             }
         }
         // Settings sits in the bottom-left corner, with the save note just above it
         ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
             if let Some(&(page, label)) = PAGES.iter().find(|p| p.0 == Page::Settings) {
-                self.nav_item(ui, page, label);
+                self.nav_item(ui, page, self.t(label));
             }
             ui.add_space(4.0);
             if let Some((tag, url)) = self.update.as_ref().and_then(|u| u.get()) {
                 ui.hyperlink_to(RichText::new(format!("Update available: {tag}")).size(12.5).color(ACCENT), url);
                 ui.add_space(2.0);
             }
-            let note = if self.cfg.auto_save { "Changes save to the mouse automatically" } else { "Auto-save is off: click Save to apply" };
+            let note = if self.cfg.auto_save {
+                self.t("Changes save to the mouse automatically")
+            } else {
+                self.t("Auto-save is off: click Save to apply")
+            };
             ui.label(RichText::new(note).size(11.5).color(MUTED));
         });
     }
@@ -1085,16 +1188,31 @@ impl App {
 
     // ---------------------------------------------------------------- Settings
     fn page_settings(&mut self, ui: &mut Ui) {
-        ui.heading("Settings");
+        ui.heading(self.t("Settings"));
         ui.add_space(4.0);
-        card(ui, "Your mouse", |ui| {
-            setting_row(ui, "Mouse color", "Which X6 the pictures show", |ui| {
+        let mouse_card = self.t("Your mouse").to_string();
+        let mouse_color = self.t("Mouse color").to_string();
+        let mouse_hint = self.t("Which X6 the pictures show").to_string();
+        let black_lbl = self.t("Black").to_string();
+        let white_lbl = self.t("White").to_string();
+        let lang_lbl = self.t("Language").to_string();
+        let lang_hint = self.t("Interface language").to_string();
+        card(ui, &mouse_card, |ui| {
+            setting_row(ui, &mouse_color, &mouse_hint, |ui| {
                 let mut black = self.cfg.black_mouse;
                 // right-to-left row: options listed in reverse so they read White | Black
-                if segmented(ui, &mut black, &[(true, "Black"), (false, "White")]) {
+                if segmented(ui, &mut black, &[(true, black_lbl.as_str()), (false, white_lbl.as_str())]) {
                     self.cfg.black_mouse = black;
                     self.cfg.save();
                     self.mouse_tex = load_mouse_texture(ui.ctx(), black);
+                }
+            });
+            ui.separator();
+            setting_row(ui, &lang_lbl, &lang_hint, |ui| {
+                let mut lang = self.cfg.language;
+                if segmented(ui, &mut lang, &[(Lang::Pt, "Português"), (Lang::En, "English")]) {
+                    self.cfg.language = lang;
+                    self.cfg.save();
                 }
             });
         });
@@ -2083,7 +2201,7 @@ impl App {
         let Some(path) = rfd::FileDialog::new().add_filter("Rust Shark macro", &["json"]).pick_file() else { return };
         match std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str::<Macro>(&s).ok()) {
             Some(mut m) => {
-                m.events.truncate(protocol::MAX_MACRO_EVENTS);
+                m.sanitize();
                 let name = m.name.clone();
                 self.p().macros.push(m);
                 self.sel_macro = self.cfg.profile().macros.len() - 1;
@@ -2406,26 +2524,29 @@ impl App {
                     }
                     let has = has && !sel_d; // move applies to actions
                     if ui.add_enabled(has && sel != Some(0), egui::Button::new("▲")).on_hover_text("Move up").clicked() {
-                        let i = sel.unwrap();
-                        m.events.swap(i, i - 1);
-                        self.sel_event = Some(i - 1);
+                        if let Some(i) = sel {
+                            m.events.swap(i, i - 1);
+                            self.sel_event = Some(i - 1);
+                        }
                     }
                     if ui.add_enabled(has && sel.is_some_and(|i| i + 1 < m.events.len()), egui::Button::new("▼")).on_hover_text("Move down").clicked() {
-                        let i = sel.unwrap();
-                        m.events.swap(i, i + 1);
-                        self.sel_event = Some(i + 1);
+                        if let Some(i) = sel {
+                            m.events.swap(i, i + 1);
+                            self.sel_event = Some(i + 1);
+                        }
                     }
                     if ui.add_enabled(sel.is_some(), egui::Button::new("Delete")).clicked() {
-                        let i = sel.unwrap();
-                        if sel_d {
-                            // deleting a delay: the action stays, its wait goes to 0
-                            m.events[i].delay_ms = 0;
-                            self.sel_delay = false;
-                        } else {
-                            m.events.remove(i);
-                            self.sel_event = if m.events.is_empty() { None } else { Some(i.min(m.events.len() - 1)) };
+                        if let Some(i) = sel {
+                            if sel_d {
+                                // deleting a delay: the action stays, its wait goes to 0
+                                m.events[i].delay_ms = 0;
+                                self.sel_delay = false;
+                            } else {
+                                m.events.remove(i);
+                                self.sel_event = if m.events.is_empty() { None } else { Some(i.min(m.events.len() - 1)) };
+                            }
+                            self.editing_event = false;
                         }
-                        self.editing_event = false;
                     }
                 });
                 if let (Some(i), true, false) = (sel, self.editing_event, sel_d) {
@@ -2773,6 +2894,18 @@ impl App {
                         *self.p() = p;
                         self.mark(Dirty::LightPower);
                     }
+                    ui.add_space(18.0);
+                    ui.separator();
+                    ui.add_space(12.0);
+                    let low_lbl = self.t("Low battery warning").to_string();
+                    let low_hint = self.t("Show a warning when battery drops to 20% or below").to_string();
+                    setting_row(ui, &low_lbl, &low_hint, |ui| {
+                        let mut on = self.cfg.low_battery_alert;
+                        if toggle(ui, &mut on).changed() {
+                            self.cfg.low_battery_alert = on;
+                            self.cfg.save();
+                        }
+                    });
                 });
                 n.push(card_natural(ui.ctx()));
             });
@@ -2799,11 +2932,7 @@ impl App {
                 }
             }
             if let Some(i) = switch_to {
-                self.cfg.active = i;
-                self.mark(Dirty::Full);
-                if self.cfg.auto_save {
-                    self.toast(format!("Applying “{}” to the mouse…", self.cfg.profile().name));
-                }
+                self.switch_profile(i, true);
             }
 
             ui.add_space(8.0);
@@ -2816,6 +2945,7 @@ impl App {
                 if ui.button("Duplicate").clicked() {
                     let mut p = self.cfg.profile().clone();
                     p.name = format!("{} copy", p.name);
+                    p.sanitize();
                     self.cfg.profiles.push(p);
                     self.cfg.save();
                 }
@@ -2850,6 +2980,39 @@ impl App {
                 }
             });
             ui.separator();
+            let exp_imp_lbl = self.t("Export / Import profile").to_string();
+            let exp_imp_hint = self.t("Save the active profile as JSON or load one from disk").to_string();
+            let exp_btn = self.t("Export…").to_string();
+            let imp_btn = self.t("Import…").to_string();
+            setting_row(ui, &exp_imp_lbl, &exp_imp_hint, |ui| {
+                if ui.button(&imp_btn).clicked() {
+                    if let Some(path) = rfd::FileDialog::new().add_filter("Rust Shark profile", &["json"]).pick_file() {
+                        match store::import_profile(&path) {
+                            Ok(p) => {
+                                self.cfg.snapshot("import");
+                                let name = p.name.clone();
+                                self.cfg.profiles.push(p);
+                                self.cfg.save();
+                                self.toast(format!("Imported “{name}”"));
+                            }
+                            Err(_) => self.toast(self.t("That file isn't a valid Rust Shark profile")),
+                        }
+                    }
+                }
+                if ui.button(&exp_btn).clicked() {
+                    let p = self.cfg.profile();
+                    let fname = format!("{}.json", p.name.replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], "_"));
+                    if let Some(path) = rfd::FileDialog::new().add_filter("Rust Shark profile", &["json"]).set_file_name(&fname).save_file() {
+                        let msg = if store::export_profile(&path, p).is_ok() {
+                            self.t("Profile exported")
+                        } else {
+                            self.t("Couldn't save the file")
+                        };
+                        self.toast(msg);
+                    }
+                }
+            });
+            ui.separator();
             setting_row(ui, "Import from official app", "Adds the profiles saved by the Attack Shark software", |ui| {
                 if ui.button("Import").clicked() {
                     match store::import_official() {
@@ -2858,6 +3021,7 @@ impl App {
                             let n = ps.len();
                             self.cfg.profiles.extend(ps.into_iter().map(|mut p| {
                                 p.name = format!("{} (imported)", p.name);
+                                p.sanitize();
                                 p
                             }));
                             self.cfg.save();

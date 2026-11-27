@@ -1,9 +1,11 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod device;
+mod i18n;
 mod icons_data;
 mod keys;
 mod protocol;
+mod single_instance;
 mod store;
 mod tray;
 mod ui;
@@ -43,22 +45,12 @@ fn resend() {
     while t.elapsed().as_secs() < 6 && !dev.snapshot().connected {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    let mut steps = vec![
-        device::Step::Packet(protocol::pkt_begin()),
-        device::Step::Pause(500),
-        device::Step::Packet(protocol::pkt_dpi(p)),
-        device::Step::Packet(protocol::pkt_light_power(p)),
-        device::Step::Packet(protocol::pkt_polling(p)),
-        device::Step::Packet(protocol::pkt_buttons(p)),
-    ];
-    for (_, chunks) in protocol::all_macro_uploads(p) {
-        steps.push(device::Step::Macro(chunks));
-    }
-    dev.send(steps);
+    dev.send(device::full_profile_steps(p));
     let t = std::time::Instant::now();
     while t.elapsed().as_secs() < 20 && dev.snapshot().pending_jobs > 0 {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
+    dev.shutdown();
 }
 
 /// The rusted shark-fin logo, embedded in the binary.
@@ -103,6 +95,14 @@ fn main() -> eframe::Result<()> {
         resend();
         return Ok(());
     }
+    let _single_instance = if std::env::var_os("SHARK_OFFLINE").is_none() {
+        match single_instance::acquire() {
+            single_instance::Lock::AlreadyRunning => return Ok(()),
+            lock => Some(lock),
+        }
+    } else {
+        None
+    };
     // started by Windows (Run key) with "start minimized" on: open straight into the tray
     let hidden = args.iter().any(|a| a == "--autostart") && store::start_minimized_setting();
     // reopen where it was last left (unless a test size is forced, or that spot is off-screen now)

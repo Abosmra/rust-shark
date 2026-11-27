@@ -39,6 +39,12 @@ pub struct Config {
     /// Keep automatic backups (startup and before deletes/resets/imports/restores).
     #[serde(default = "yes")]
     pub auto_backup: bool,
+    /// Show a warning toast when mouse battery drops to 20% or below.
+    #[serde(default = "yes")]
+    pub low_battery_alert: bool,
+    /// UI language (defaults to Windows UI language on first run).
+    #[serde(default = "crate::i18n::system_default")]
+    pub language: crate::i18n::Lang,
 }
 
 /// Saved window rect `[x, y, w, h]`, read without loading the whole config.
@@ -150,7 +156,10 @@ impl Config {
         let mut recovered = false;
         if let Ok(s) = std::fs::read_to_string(&path) {
             match serde_json::from_str::<Config>(&s) {
-                Ok(c) if !c.profiles.is_empty() => {
+                Ok(mut c) if !c.profiles.is_empty() => {
+                    for p in &mut c.profiles {
+                        p.sanitize();
+                    }
                     let active = c.active.min(c.profiles.len() - 1);
                     return (Config { active, ..c }, "loaded");
                 }
@@ -160,12 +169,12 @@ impl Config {
         }
         if recovered {
             let profiles = import_official().unwrap_or_else(|| vec![Profile::default()]);
-            return (Config { profiles, active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false, window: None, black_mouse: false, check_updates: true, auto_backup: true }, "recovered");
+            return (Config { profiles, active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false, window: None, black_mouse: false, check_updates: true, auto_backup: true, low_battery_alert: true, language: crate::i18n::system_default() }, "recovered");
         }
         if let Some(profiles) = import_official() {
-            return (Config { profiles, active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false, window: None, black_mouse: false, check_updates: true, auto_backup: true }, "imported");
+            return (Config { profiles, active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false, window: None, black_mouse: false, check_updates: true, auto_backup: true, low_battery_alert: true, language: crate::i18n::system_default() }, "imported");
         }
-        (Config { profiles: vec![Profile::default()], active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false, window: None, black_mouse: false, check_updates: true, auto_backup: true }, "default")
+        (Config { profiles: vec![Profile::default()], active: 0, library_imported: false, use_default_delay: true, default_delay: 10, auto_save: true, close_to_tray: false, start_minimized: false, window: None, black_mouse: false, check_updates: true, auto_backup: true, low_battery_alert: true, language: crate::i18n::system_default() }, "default")
     }
 
     pub fn save(&self) {
@@ -204,9 +213,12 @@ impl Config {
 
     /// Settings from a backup file. None if it isn't a Rust Shark backup.
     pub fn from_file(path: &std::path::Path) -> Option<Config> {
-        let c: Config = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+        let mut c: Config = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
         if c.profiles.is_empty() {
             return None;
+        }
+        for p in &mut c.profiles {
+            p.sanitize();
         }
         Some(Config { active: c.active.min(c.profiles.len() - 1), ..c })
     }
@@ -255,6 +267,12 @@ fn u32_at(d: &[u8], o: usize) -> Option<u32> {
 fn u16_at(d: &[u8], o: usize) -> Option<u16> {
     d.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]))
 }
+fn byte_at(d: &[u8], o: usize) -> u8 {
+    d.get(o).copied().unwrap_or(0)
+}
+fn rgb_at(d: &[u8], o: usize) -> [u8; 3] {
+    [byte_at(d, o), byte_at(d, o + 1), byte_at(d, o + 2)]
+}
 fn utf16_at(d: &[u8], o: usize, max_chars: usize) -> String {
     let mut v = Vec::new();
     for i in 0..max_chars {
@@ -290,8 +308,7 @@ fn read_profile(d: &[u8], b: usize) -> Profile {
     p.name = utf16_at(d, b, 24);
     for i in 0..8 {
         p.dpi_units[i] = g(0x8C4 + i * 4).min(520) as u16;
-        let c = b + 0x960 + i * 4;
-        p.dpi_colors[i] = [d[c], d[c + 1], d[c + 2]];
+        p.dpi_colors[i] = rgb_at(d, b + 0x960 + i * 4);
     }
     p.dpi_mask = (0..8).fold(0u8, |m, i| if g(0x904 + i * 4) == 1 { m | (1 << i) } else { m });
     if p.dpi_mask == 0 {
@@ -308,14 +325,13 @@ fn read_profile(d: &[u8], b: usize) -> Profile {
     p.deep_sleep_min = g(0x92C) as u8;
     p.sleep_half_min = g(0x930) as u8;
     p.key_response = g(0x958) as u8;
-    let c = b + 0x95C;
-    p.light_color = [d[c], d[c + 1], d[c + 2]];
+    p.light_color = rgb_at(d, b + 0x95C);
 
     for slot in 0..18 {
         let m = b + 0x9A0 + slot * 0x4F8;
         let Some(fid) = d.get(m + 1).copied() else { break };
         p.buttons[slot] = match fid {
-            16 => Binding::Shortcut { mods: d[m + 7], key: d[m + 3] },
+            16 => Binding::Shortcut { mods: byte_at(d, m + 7), key: byte_at(d, m + 3) },
             17 => {
                 let count = u16_at(d, m + 0x44).unwrap_or(0) as usize;
                 let events = (0..count.min(crate::protocol::MAX_MACRO_EVENTS))
@@ -334,9 +350,9 @@ fn read_profile(d: &[u8], b: usize) -> Profile {
                         if n.is_empty() { format!("Macro {}", p.macros.len() + 1) } else { n }
                     },
                     events,
-                    repeat: d[m + 0x43C].min(2),
-                    loops: d[m + 0x40].max(1),
-                    kind: d[m + 0x0C],
+                    repeat: byte_at(d, m + 0x43C).min(2),
+                    loops: byte_at(d, m + 0x40).max(1),
+                    kind: byte_at(d, m + 0x0C),
                 });
                 Binding::Macro(p.macros.len() - 1)
             }
@@ -346,6 +362,7 @@ fn read_profile(d: &[u8], b: usize) -> Profile {
             },
         };
     }
+    p.sanitize();
     p
 }
 
@@ -362,4 +379,47 @@ pub fn import_official() -> Option<Vec<Profile>> {
         }
     }
     if out.is_empty() { None } else { Some(out) }
+}
+
+pub fn export_profile(path: &std::path::Path, profile: &Profile) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(profile)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, json)
+}
+
+pub fn import_profile(path: &std::path::Path) -> Result<Profile, String> {
+    let s = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let mut p: Profile = serde_json::from_str(&s).map_err(|e| e.to_string())?;
+    p.sanitize();
+    Ok(p)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncated_pro_data_does_not_panic() {
+        let mut buf = vec![0u8; 0x9A0 + 0x50];
+        // slot 0: fid = 17 (macro) at m + 1, with truncated macro payload
+        buf[0x9A0 + 1] = 17;
+        let p = read_profile(&buf, 0);
+        assert_eq!(p.name, "Profile");
+        assert_eq!(p.polling, 8);
+    }
+
+    #[test]
+    fn profile_export_import_roundtrip_and_sanitize() {
+        let dir = std::env::temp_dir().join(format!("rust-shark-pr-profile-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("profile.json");
+        let mut p = Profile::default();
+        p.name = "  My Gaming Profile With Extra Long Name  ".into();
+        p.polling = 77; // invalid, should sanitize to 1
+        export_profile(&path, &p).unwrap();
+        let loaded = import_profile(&path).unwrap();
+        assert_eq!(loaded.name.chars().count(), 24);
+        assert_eq!(loaded.polling, 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -48,11 +48,21 @@ pub struct Macro {
     #[serde(default = "two")]
     pub kind: u8,
 }
-fn two() -> u8 {
+pub fn two() -> u8 {
     2
 }
 fn one() -> u8 {
     1
+}
+
+impl Macro {
+    pub fn sanitize(&mut self) {
+        let trimmed: String = self.name.trim().chars().take(24).collect();
+        self.name = trimmed;
+        self.repeat = self.repeat.min(2);
+        self.loops = self.loops.max(1);
+        self.events.truncate(MAX_MACRO_EVENTS);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -169,6 +179,48 @@ impl Profile {
             self.active_dpi = 0;
         }
     }
+
+    /// Clamp all fields to valid hardware/protocol bounds so corrupted JSON or
+    /// imported files cannot produce out-of-range packets or panics.
+    pub fn sanitize(&mut self) {
+        let trimmed: String = self.name.trim().chars().take(24).collect();
+        self.name = if trimmed.is_empty() { "Profile".into() } else { trimmed };
+        if self.dpi_mask == 0 {
+            self.dpi_mask = 0x3F;
+        }
+        for i in 0..8 {
+            self.dpi_units[i] = self.dpi_units[i].min(520);
+            if (self.dpi_mask & (1 << i)) != 0 && self.dpi_units[i] == 0 {
+                self.dpi_units[i] = 16;
+            }
+        }
+        let levels = self.dpi_levels() as u8;
+        if self.active_dpi >= levels {
+            self.active_dpi = 0;
+        }
+        self.dpi_indicator = self.dpi_indicator.clamp(1, 3);
+        self.lod = self.lod.min(2);
+        self.key_response = self.key_response.clamp(2, 25);
+        if !matches!(self.polling, 1 | 2 | 4 | 8) {
+            self.polling = 1;
+        }
+        self.light_mode = self.light_mode.min(11);
+        self.light_brightness = self.light_brightness.clamp(1, 8);
+        self.light_speed = self.light_speed.clamp(4, 8);
+        self.sleep_half_min = self.sleep_half_min.clamp(1, 60);
+        self.deep_sleep_min = self.deep_sleep_min.clamp(1, 60);
+        for m in &mut self.macros {
+            m.sanitize();
+        }
+        let n_macros = self.macros.len();
+        for b in &mut self.buttons {
+            if let Binding::Macro(idx) = b {
+                if *idx >= n_macros {
+                    *b = Binding::Code([0x01, 0, 0]);
+                }
+            }
+        }
+    }
 }
 
 fn sum16(bytes: &[u8]) -> u16 {
@@ -202,7 +254,7 @@ pub fn pkt_dpi(p: &Profile) -> Vec<u8> {
             b[16 + i] = (raw >> 8) as u8;
         }
     }
-    b[24] = p.active_dpi + 1;
+    b[24] = p.active_dpi.min(7) + 1;
     for (i, c) in p.dpi_colors.iter().enumerate() {
         b[25 + i * 3..28 + i * 3].copy_from_slice(c);
     }
@@ -500,5 +552,58 @@ mod tests {
         assert_eq!(parse_status(&hex("03 10 50 00 06")), Some(StatusMsg::Ack { ok: true, report: 0x06 }));
         assert_eq!(parse_status(&hex("03 10 50 01 06")), Some(StatusMsg::Ack { ok: false, report: 0x06 }));
         assert_eq!(parse_status(&hex("03 10 10 03 00")), Some(StatusMsg::DpiLevel(2)));
+    }
+
+    #[test]
+    fn pkt_dpi_handles_max_active_dpi_without_overflow() {
+        let mut p = Profile::default();
+        p.active_dpi = 255;
+        let pkt = pkt_dpi(&p);
+        assert_eq!(pkt[24], 8);
+    }
+
+    #[test]
+    fn sanitize_fixes_out_of_range_profile() {
+        let mut p = Profile::default();
+        p.name = "   ".into();
+        p.dpi_mask = 0;
+        p.dpi_units = [0; 8];
+        p.active_dpi = 255;
+        p.polling = 99;
+        p.lod = 9;
+        p.key_response = 0;
+        p.light_mode = 99;
+        p.light_brightness = 0;
+        p.light_speed = 99;
+        p.sleep_half_min = 0;
+        p.deep_sleep_min = 250;
+        p.buttons[0] = Binding::Macro(99);
+        p.macros.push(Macro {
+            name: "  abcdefghijklmnopqrstuvwxyz123456 ".into(),
+            events: vec![MacroEvent { code: 0x04, down: true, delay_ms: 10 }; 75],
+            repeat: 9,
+            loops: 0,
+            kind: 2,
+        });
+
+        p.sanitize();
+
+        assert_eq!(p.name, "Profile");
+        assert_eq!(p.dpi_mask, 0x3F);
+        assert_eq!(p.dpi_units[0], 16);
+        assert_eq!(p.active_dpi, 0);
+        assert_eq!(p.polling, 1);
+        assert_eq!(p.lod, 2);
+        assert_eq!(p.key_response, 2);
+        assert_eq!(p.light_mode, 11);
+        assert_eq!(p.light_brightness, 1);
+        assert_eq!(p.light_speed, 8);
+        assert_eq!(p.sleep_half_min, 1);
+        assert_eq!(p.deep_sleep_min, 60);
+        assert_eq!(p.buttons[0], Binding::Code([0x01, 0, 0]));
+        assert_eq!(p.macros[0].name.chars().count(), 24);
+        assert_eq!(p.macros[0].events.len(), MAX_MACRO_EVENTS);
+        assert_eq!(p.macros[0].repeat, 2);
+        assert_eq!(p.macros[0].loops, 1);
     }
 }
